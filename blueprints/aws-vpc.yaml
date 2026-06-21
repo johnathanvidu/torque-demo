@@ -1,0 +1,48 @@
+spec_version: 2
+description: Provision an AWS VPC with a public /24 subnet, internet gateway, and route table.
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent used to run the Terraform grain.
+  name:
+    type: string
+    default: torque-vpc
+    description: Name prefix for the VPC and its resources.
+  cidr_block:
+    type: string
+    default: 10.0.0.0/16
+    description: CIDR block for the VPC.
+  subnet_index:
+    type: string
+    default: "0"
+    description: Which /24 block to carve out of the VPC CIDR (0-based).
+
+outputs:
+  vpc_id:
+    value: '{{ .grains.vpc.outputs.vpc_id }}'
+  vpc_cidr_block:
+    value: '{{ .grains.vpc.outputs.vpc_cidr_block }}'
+  subnet_id:
+    value: '{{ .grains.vpc.outputs.subnet_id }}'
+  subnet_cidr_block:
+    value: '{{ .grains.vpc.outputs.subnet_cidr_block }}'
+
+grains:
+  vpc:
+    kind: terraform
+    spec:
+      source:
+        store: torque-demo
+        path: terraform/aws/vpc
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - name: '{{ .inputs.name }}'
+        - cidr_block: '{{ .inputs.cidr_block }}'
+        - subnet_index: '{{ .inputs.subnet_index }}'
+      outputs:
+        - vpc_id
+        - vpc_cidr_block
+        - subnet_id
+        - subnet_cidr_block

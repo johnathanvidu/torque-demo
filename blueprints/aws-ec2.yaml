@@ -1,0 +1,61 @@
+spec_version: 2
+description: Provision an Ubuntu AWS EC2 instance with a generated SSH key pair and an allow-SSH security group.
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent used to run the Terraform grain.
+  instance_name:
+    type: string
+    default: torque-ec2
+    description: Name tag for the EC2 instance.
+  instance_type:
+    type: string
+    default: t3.micro
+    description: EC2 instance type.
+  subnet_id:
+    type: string
+    description: Subnet ID to launch the instance in.
+  vpc_id:
+    type: string
+    description: VPC ID in which to create the security group.
+  security_group_ids:
+    type: string
+    default: "[]"
+    description: 'Additional security group IDs to attach, as an HCL list (e.g. ["sg-123","sg-456"]). The allow_ssh group is always attached.'
+  ssh_ingress_cidrs:
+    type: string
+    default: '["0.0.0.0/0"]'
+    description: CIDR blocks allowed to reach the instance over SSH (port 22), as an HCL list.
+
+outputs:
+  instance_id:
+    value: '{{ .grains.ec2.outputs.instance_id }}'
+  public_ip:
+    value: '{{ .grains.ec2.outputs.public_ip }}'
+  private_ip:
+    value: '{{ .grains.ec2.outputs.private_ip }}'
+  key_pair_name:
+    value: '{{ .grains.ec2.outputs.key_pair_name }}'
+
+grains:
+  ec2:
+    kind: terraform
+    spec:
+      source:
+        store: torque-demo
+        path: terraform/aws/ec2
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - instance_name: '{{ .inputs.instance_name }}'
+        - instance_type: '{{ .inputs.instance_type }}'
+        - subnet_id: '{{ .inputs.subnet_id }}'
+        - vpc_id: '{{ .inputs.vpc_id }}'
+        - security_group_ids: '{{ .inputs.security_group_ids }}'
+        - ssh_ingress_cidrs: '{{ .inputs.ssh_ingress_cidrs }}'
+      outputs:
+        - instance_id
+        - public_ip
+        - private_ip
+        - key_pair_name

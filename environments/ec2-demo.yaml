@@ -1,0 +1,43 @@
+spec_version: 2
+
+environment:
+  name: ec2-demo
+  owner_email: johnathan.v@quali.com
+  state: inactive
+  description: An environment to demonstrate starting and stopping EC2 instances with Torque.
+  labels:
+    - AWS: 
+
+inputs:
+  prefix:
+    type: string
+    default: ec2-demo
+    description: Prefix for all resources created in this environment, to ensure uniqueness.
+
+grains:
+  vpc:
+    kind: blueprint
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/aws-vpc.yaml
+      inputs:
+        - agent: torque-agent
+        - name: '{{ .inputs.prefix }}-vpc'
+        - cidr_block: 10.0.5.0/16
+      outputs:
+        - vpc_id
+        - subnet_id
+  ec2:
+    kind: blueprint
+    depends_on: vpc
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/aws-ec2.yaml
+      inputs:
+        - agent: torque-agent
+        - vpc_id: '{{ .grains.vpc.outputs.vpc_id }}'
+        - subnet_id: '{{ .grains.vpc.outputs.subnet_id }}'
+        - instance_type: t3.micro
+        - instance_name: '{{ .inputs.prefix }}-ec2'

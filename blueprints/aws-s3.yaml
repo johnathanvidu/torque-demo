@@ -1,0 +1,45 @@
+spec_version: 2
+description: Provision an AWS S3 bucket.
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent used to run the Terraform grain.
+  name:
+    type: string
+    description: Name of the S3 bucket (must be globally unique).
+  region:
+    type: string
+    default: eu-west-1
+    description: Region in which to create the bucket.
+
+outputs:
+  s3_bucket_id:
+    value: '{{ .grains.s3.outputs.s3_bucket_id }}'
+  s3_bucket_arn:
+    value: '{{ .grains.s3.outputs.s3_bucket_arn }}'
+  s3_bucket_domain_name:
+    value: '{{ .grains.s3.outputs.s3_bucket_domain_name }}'
+  s3_bucket_regional_domain_name:
+    value: '{{ .grains.s3.outputs.s3_bucket_regional_domain_name }}'
+  s3_bucket_region:
+    value: '{{ .grains.s3.outputs.s3_bucket_region }}'
+
+grains:
+  s3:
+    kind: terraform
+    spec:
+      source:
+        store: torque-demo
+        path: terraform/aws/s3
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - name: '{{ .inputs.name }}'
+        - region: '{{ .inputs.region }}'
+      outputs:
+        - s3_bucket_id
+        - s3_bucket_arn
+        - s3_bucket_domain_name
+        - s3_bucket_regional_domain_name
+        - s3_bucket_region

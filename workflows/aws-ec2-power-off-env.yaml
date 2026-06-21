@@ -1,0 +1,25 @@
+spec_version: 2
+description: This workflow pauses all ec2s in the environment
+
+workflow:
+  scope: env
+  labels-selector: AWS
+  triggers:
+    - type: manual
+    - type: cron 
+      cron: '0 22 * * *' # every day at 22:00
+      overridable: true # Allow end-users to override the cron
+
+inputs:
+  agent:
+    type: agent
+
+grains:
+  pause_ec2:
+    kind: ansible
+    spec:
+      built-in: true
+      source:
+        path: https://github.com/QualiTorque/torque-actions.git//resource/aws-power-off-ec2-tf.yaml
+      agent:
+        name: '{{ .inputs.agent }}'
