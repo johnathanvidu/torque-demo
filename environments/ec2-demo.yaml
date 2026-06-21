@@ -6,7 +6,7 @@ environment:
   state: inactive
   description: An environment to demonstrate starting and stopping EC2 instances with Torque.
   labels:
-    - AWS: 
+    - AWS
 
 inputs:
   prefix:
