@@ -5,7 +5,7 @@ environment:
   owner_email: johnathan.v@quali.com
   state: inactive
   description: An environment to demonstrate starting and stopping EC2 instances with Torque.
-  labels:
+  env-labels:
     - AWS
 
 inputs:
