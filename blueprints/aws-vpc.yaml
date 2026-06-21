@@ -1,6 +1,9 @@
 spec_version: 2
 description: Provision an AWS VPC with a public /24 subnet, internet gateway, and route table.
 
+metadata:
+  self-service: true
+
 inputs:
   agent:
     type: agent

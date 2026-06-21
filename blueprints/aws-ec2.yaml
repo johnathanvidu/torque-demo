@@ -1,6 +1,9 @@
 spec_version: 2
 description: Provision an Ubuntu AWS EC2 instance with a generated SSH key pair and an allow-SSH security group.
 
+metadata:
+  self-service: true
+
 inputs:
   agent:
     type: agent
