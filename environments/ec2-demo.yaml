@@ -22,7 +22,7 @@ grains:
         store: torque-demo
         path: blueprints/aws-vpc.yaml
       inputs:
-        - agent: torque-agent
+        - agent: vido-vido-prod
         - name: '{{ .inputs.prefix }}-vpc'
         - cidr_block: 10.0.5.0/16
       outputs:
@@ -36,7 +36,7 @@ grains:
         store: torque-demo
         path: blueprints/aws-ec2.yaml
       inputs:
-        - agent: torque-agent
+        - agent: vido-vido-prod
         - vpc_id: '{{ .grains.vpc.outputs.vpc_id }}'
         - subnet_id: '{{ .grains.vpc.outputs.subnet_id }}'
         - instance_type: t3.micro
