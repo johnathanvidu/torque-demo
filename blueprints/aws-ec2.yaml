@@ -3,6 +3,9 @@ description: Provision an Ubuntu AWS EC2 instance with a generated SSH key pair 
 
 metadata:
   self-service: true
+  display-name: AWS EC2 Instance
+  icon:
+    path: icons/ec2.svg
 
 inputs:
   agent:

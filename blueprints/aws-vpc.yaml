@@ -3,6 +3,9 @@ description: Provision an AWS VPC with a public /24 subnet, internet gateway, an
 
 metadata:
   self-service: true
+  display-name: AWS VPC
+  icon:
+    path: icons/vpc.svg
 
 inputs:
   agent:

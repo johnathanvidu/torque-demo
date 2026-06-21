@@ -3,6 +3,9 @@ description: Provision an AWS S3 bucket.
 
 metadata:
   self-service: true
+  display-name: AWS S3 Bucket
+  icon:
+    path: icons/s3.svg
 
 inputs:
   agent:
