@@ -30,7 +30,7 @@ grains:
         - subnet_id
   ec2:
     kind: blueprint
-    depends_on: vpc
+    depends-on: vpc
     spec:
       source:
         store: torque-demo
