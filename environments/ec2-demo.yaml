@@ -24,7 +24,7 @@ grains:
       inputs:
         - agent: vido-vido-prod
         - name: '{{ .inputs.prefix }}-vpc'
-        - cidr_block: 10.0.5.0/16
+        - cidr_block: 10.5.0.0/16
       outputs:
         - vpc_id
         - subnet_id
