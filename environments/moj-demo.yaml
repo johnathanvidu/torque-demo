@@ -1,0 +1,44 @@
+spec_version: 2
+
+labels:
+  - AWS
+
+environment:
+  environment_name: moj-demo
+  owner_email: johnathan.v@quali.com
+  state: active
+  description: A minimal-input environment that provisions a VPC and an EC2 instance with Torque.
+
+inputs:
+  prefix:
+    type: string
+    default: moj-demo
+    description: Prefix for all resources created in this environment, to ensure uniqueness.
+
+grains:
+  vpc:
+    kind: blueprint
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/aws-vpc.yaml
+      inputs:
+        - agent: vido-vido-prod
+        - name: '{{ .inputs.prefix }}-vpc'
+        - cidr_block: 10.6.0.0/16
+      outputs:
+        - vpc_id
+        - subnet_id
+  ec2:
+    kind: blueprint
+    depends-on: vpc
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/aws-ec2.yaml
+      inputs:
+        - agent: vido-vido-prod
+        - vpc_id: '{{ .grains.vpc.outputs.vpc_id }}'
+        - subnet_id: '{{ .grains.vpc.outputs.subnet_id }}'
+        - instance_type: t3.micro
+        - instance_name: '{{ .inputs.prefix }}-ec2'
