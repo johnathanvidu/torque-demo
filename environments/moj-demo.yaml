@@ -6,7 +6,7 @@ labels:
 environment:
   environment_name: moj-demo
   owner_email: johnathan.v@quali.com
-  state: active
+  state: inactive
   description: A minimal-input environment that provisions a VPC and an EC2 instance with Torque.
 
 inputs:
