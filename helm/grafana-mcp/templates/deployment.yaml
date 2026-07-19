@@ -25,6 +25,8 @@ spec:
             - "{{ .Values.bindAddress }}:{{ .Values.port }}"
             - "--allowed-hosts"
             - "{{ .Values.allowedHosts }}"
+            - "--endpoint-path"
+            - "{{ .Values.endpointPath }}"
           ports:
             - name: http
               containerPort: {{ .Values.port }}
@@ -36,19 +38,23 @@ spec:
                 secretKeyRef:
                   name: grafana-mcp-auth
                   key: serviceAccountToken
+          # TCP probes, not httpGet: the kubelet sends HTTP probes with
+          # Host: <podIP>, which mcp-grafana's --allowed-hosts check rejects
+          # (the pod IP can't be in the allowlist). A TCP check has no Host
+          # header, so it validates the server is listening without tripping the
+          # host allowlist, and doesn't depend on the /healthz path existing.
           readinessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: http
             initialDelaySeconds: 5
             periodSeconds: 5
             failureThreshold: 12
           livenessProbe:
-            httpGet:
-              path: /healthz
+            tcpSocket:
               port: http
-            initialDelaySeconds: 15
-            periodSeconds: 10
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 3
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
 ---

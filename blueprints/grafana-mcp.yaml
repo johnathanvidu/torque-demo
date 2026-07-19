@@ -43,11 +43,15 @@ inputs:
     type: string
     default: grafana-mcp.mcp.svc.cluster.local,grafana-mcp,localhost,127.0.0.1
     description: Host-header allowlist. mcp-grafana rejects requests whose Host isn't listed (default is loopback-only), so every hostname clients dial must appear here.
+  endpoint_path:
+    type: string
+    default: /mcp
+    description: Path the MCP endpoint is served on (streamable-http/sse).
 
 outputs:
   # In-cluster endpoint of the MCP server, for other in-cluster clients / agents.
   mcp_endpoint:
-    value: 'http://grafana-mcp.{{ .inputs.namespace }}.svc.cluster.local:{{ .inputs.port }}/'
+    value: 'http://grafana-mcp.{{ .inputs.namespace }}.svc.cluster.local:{{ .inputs.port }}{{ .inputs.endpoint_path }}'
   grafana_url:
     value: '{{ .inputs.grafana_url }}'
 
@@ -69,3 +73,4 @@ grains:
         - transport: '{{ .inputs.transport }}'
         - port: '{{ .inputs.port }}'
         - allowedHosts: '{{ .inputs.allowed_hosts }}'
+        - endpointPath: '{{ .inputs.endpoint_path }}'

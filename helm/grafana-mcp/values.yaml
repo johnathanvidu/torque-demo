@@ -29,6 +29,9 @@ bindAddress: "0.0.0.0"
 # the Service DNS. List every host clients will dial. Empty string => allow all
 # (rendered as --allowed-hosts "" which disables the check; fine for a demo).
 allowedHosts: "grafana-mcp.mcp.svc.cluster.local,grafana-mcp,localhost,127.0.0.1"
+# Path the streamable-http/sse endpoint is served on. Pinned so it's deterministic
+# across image builds (the latest/devel build defaults this to /mcp).
+endpointPath: "/mcp"
 
 service:
   type: ClusterIP
