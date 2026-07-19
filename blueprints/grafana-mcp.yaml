@@ -1,5 +1,5 @@
 spec_version: 2
-description: Deploy the Grafana MCP server (grafana/mcp-grafana) into the "mcp" namespace and connect it to a Grafana instance. Auth (URL + service-account token) is calculated dynamically and wired in from the Grafana blueprint.
+description: Deploy a Grafana MCP server that gives AI agents live access to Grafana observability - query Prometheus metrics and Loki logs, search and manage dashboards, and inspect alerts, incidents, and datasources.
 
 metadata:
   self-service: true
@@ -7,15 +7,18 @@ metadata:
   icon:
     path: icons/grafana.svg
 
+# Marks this as an MCP-server blueprint so a client can fetch it via the Torque API
+# by filtering on the label key/value (type=mcp).
+labels:
+  - type: mcp
+
+# Only three inputs - everything else (image tag, transport, port, endpoint path,
+# host allowlist, namespace) is fixed and lives in helm/grafana-mcp/values.yaml.
 inputs:
   agent:
     type: agent
     description: Kubernetes agent that runs the Helm grain (same cluster as Grafana).
-  namespace:
-    type: string
-    default: mcp
-    description: Namespace to deploy the MCP server into (created if missing).
-  # ---- Dynamically calculated inputs (wired from the Grafana blueprint) ----
+  # ---- Wired dynamically from the Grafana blueprint (not entered by the user) ----
   grafana_url:
     type: string
     description: In-cluster base URL of Grafana, e.g. http://grafana.grafana.svc.cluster.local:3000. Wired from the Grafana grain output.
@@ -23,56 +26,17 @@ inputs:
     type: string
     sensitive: true
     description: Grafana service-account token the MCP server authenticates with. Minted at deploy time and wired from the Grafana grain output.
-  # ---- Server configuration ----
-  image_tag:
-    type: string
-    default: latest
-    description: grafana/mcp-grafana image tag.
-  transport:
-    type: string
-    default: streamable-http
-    allowed-values:
-      - streamable-http
-      - sse
-    description: MCP transport. stdio is not usable over a k8s Service.
-  port:
-    type: string
-    default: "8000"
-    description: Port the MCP server listens on and the Service exposes.
-  allowed_hosts:
-    type: string
-    default: grafana-mcp.mcp.svc.cluster.local,grafana-mcp,localhost,127.0.0.1,localhost:8000,127.0.0.1:8000
-    description: Host-header allowlist. mcp-grafana rejects requests whose Host isn't listed (default is loopback-only), so every hostname clients dial must appear here. The check matches the full Host header including port, so a `kubectl port-forward ... 8000:8000` client sends Host `localhost:8000` and needs the port-qualified entries, not just bare `localhost`.
-  endpoint_path:
-    type: string
-    default: /mcp
-    description: Path the MCP endpoint is served on (streamable-http/sse).
 
 outputs:
   # In-cluster endpoint of the MCP server, for other in-cluster clients / agents.
   mcp_endpoint:
-    value: 'http://grafana-mcp.{{ .inputs.namespace }}.svc.cluster.local:{{ .inputs.port }}{{ .inputs.endpoint_path }}'
-  grafana_url:
-    value: '{{ .inputs.grafana_url }}'
-  # Expose the MCP server locally: the Service is ClusterIP, so a port-forward is
-  # needed before the Claude CLI can reach it at localhost.
-  port_forward_command:
-    value: 'kubectl port-forward svc/grafana-mcp -n {{ .inputs.namespace }} {{ .inputs.port }}:{{ .inputs.port }}'
-  # Register the port-forwarded MCP server with the Claude CLI. `-s user` puts it in
-  # global scope so it's available regardless of the directory the command is run
-  # from (local scope would tie it to one folder and it wouldn't appear elsewhere).
-  claude_mcp_install_command:
-    value: 'claude mcp add -s user --transport http grafana-mcp http://localhost:{{ .inputs.port }}{{ .inputs.endpoint_path }}'
-  # Both steps in one command. `claude mcp add` only writes config (returns instantly,
-  # doesn't need the tunnel), so register first (-s user, global scope), then run the
-  # port-forward in the foreground where it stays alive holding the tunnel open
-  # (Ctrl+C to stop).
+    value: 'http://grafana-mcp.mcp.svc.cluster.local:8000/mcp'
+  # One command to use the server from the Claude CLI: register it (-s user = global
+  # scope, works from any directory), then hold the port-forward tunnel open in the
+  # foreground (Ctrl+C to stop).
   claude_cli_setup:
-    value: 'claude mcp add -s user --transport http grafana-mcp http://localhost:{{ .inputs.port }}{{ .inputs.endpoint_path }} && kubectl port-forward svc/grafana-mcp -n {{ .inputs.namespace }} {{ .inputs.port }}:{{ .inputs.port }}'
-  # Unregister the MCP server from the Claude CLI. `-s user` matches the scope the
-  # install used, so it removes cleanly regardless of cwd (and it stops showing as
-  # "reconnecting"). Only removes the client config; stop the port-forward separately
-  # (Ctrl+C the terminal running it).
+    value: 'claude mcp add -s user --transport http grafana-mcp http://localhost:8000/mcp && kubectl port-forward svc/grafana-mcp -n mcp 8000:8000'
+  # Unregister the MCP server from the Claude CLI (stop the port-forward separately).
   claude_mcp_delete_command:
     value: 'claude mcp remove -s user grafana-mcp'
 
@@ -85,13 +49,9 @@ grains:
         path: helm/grafana-mcp
       agent:
         name: '{{ .inputs.agent }}'
-      target-namespace: '{{ .inputs.namespace }}'
+      target-namespace: mcp
       command-arguments: '--create-namespace --wait --timeout 3m'
+      # Only the two dynamic secrets are wired; the rest are chart defaults.
       inputs:
-        - image.tag: '{{ .inputs.image_tag }}'
         - grafanaUrl: '{{ .inputs.grafana_url }}'
         - serviceAccountToken: '{{ .inputs.service_account_token }}'
-        - transport: '{{ .inputs.transport }}'
-        - port: '{{ .inputs.port }}'
-        - allowedHosts: '{{ .inputs.allowed_hosts }}'
-        - endpointPath: '{{ .inputs.endpoint_path }}'
