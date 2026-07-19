@@ -1,5 +1,5 @@
 spec_version: 2
-description: Deploy Grafana into the "graphana" namespace of the agent's Kubernetes cluster, then mint a service-account token so downstream tools (the Grafana MCP server) can authenticate to it.
+description: Deploy Grafana into the "grafana" namespace of the agent's Kubernetes cluster, then mint a service-account token so downstream tools (the Grafana MCP server) can authenticate to it.
 
 metadata:
   self-service: true
@@ -13,7 +13,7 @@ inputs:
     description: Kubernetes agent that runs the Helm grain. Grafana is deployed into the cluster this agent resides in.
   namespace:
     type: string
-    default: graphana
+    default: grafana
     description: Namespace to deploy Grafana into (created if missing). Also determines the in-cluster URL.
   grafana_version:
     type: string
@@ -42,7 +42,7 @@ inputs:
     description: Name of the service-account token minted for the MCP server.
 
 outputs:
-  # In-cluster base URL of Grafana, e.g. http://grafana.graphana.svc.cluster.local:3000
+  # In-cluster base URL of Grafana, e.g. http://grafana.grafana.svc.cluster.local:3000
   grafana_url:
     value: '{{ .grains.grafana.scripts.post-helm-install.outputs.grafana_url }}'
   # Freshly minted service-account token — the dynamically calculated auth input for the MCP server.

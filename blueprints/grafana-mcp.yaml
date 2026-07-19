@@ -18,7 +18,7 @@ inputs:
   # ---- Dynamically calculated inputs (wired from the Grafana blueprint) ----
   grafana_url:
     type: string
-    description: In-cluster base URL of Grafana, e.g. http://grafana.graphana.svc.cluster.local:3000. Wired from the Grafana grain output.
+    description: In-cluster base URL of Grafana, e.g. http://grafana.grafana.svc.cluster.local:3000. Wired from the Grafana grain output.
   service_account_token:
     type: string
     sensitive: true

@@ -10,7 +10,7 @@
 # here.
 #
 # Args (positional):
-#   $1  Grafana base URL, in-cluster (e.g. http://grafana.graphana.svc.cluster.local:3000)
+#   $1  Grafana base URL, in-cluster (e.g. http://grafana.grafana.svc.cluster.local:3000)
 #   $2  Grafana admin username
 #   $3  Grafana admin password
 #   $4  service account name
