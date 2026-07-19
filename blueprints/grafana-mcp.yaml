@@ -54,6 +54,23 @@ outputs:
     value: 'http://grafana-mcp.{{ .inputs.namespace }}.svc.cluster.local:{{ .inputs.port }}{{ .inputs.endpoint_path }}'
   grafana_url:
     value: '{{ .inputs.grafana_url }}'
+  # Expose the MCP server locally: the Service is ClusterIP, so a port-forward is
+  # needed before the Claude CLI can reach it at localhost.
+  port_forward_command:
+    value: 'kubectl port-forward svc/grafana-mcp -n {{ .inputs.namespace }} {{ .inputs.port }}:{{ .inputs.port }}'
+  # Register the port-forwarded MCP server with the Claude CLI.
+  claude_mcp_install_command:
+    value: 'claude mcp add --transport http grafana-mcp http://localhost:{{ .inputs.port }}{{ .inputs.endpoint_path }}'
+  # Both steps in one command: `claude mcp add` only writes config (returns
+  # instantly, doesn't need the tunnel), so register first, then run the
+  # port-forward in the foreground where it stays alive holding the tunnel open
+  # (Ctrl+C to stop). Ordered this way, no backgrounding (&) is needed.
+  claude_cli_setup:
+    value: 'claude mcp add --transport http grafana-mcp http://localhost:{{ .inputs.port }}{{ .inputs.endpoint_path }} && kubectl port-forward svc/grafana-mcp -n {{ .inputs.namespace }} {{ .inputs.port }}:{{ .inputs.port }}'
+  # Unregister the MCP server from the Claude CLI (run when the environment is torn
+  # down). Only removes the local client config; stop the port-forward separately.
+  claude_mcp_delete_command:
+    value: 'claude mcp remove grafana-mcp'
 
 grains:
   grafana-mcp:
