@@ -7,7 +7,8 @@ metadata:
   icon:
     path: icons/grafana.svg
   blueprint-labels:
-    - type: mcp
+    - key: type
+      value: mcp
 
 # Only three inputs - everything else (image tag, transport, port, endpoint path,
 # host allowlist, namespace) is fixed and lives in helm/grafana-mcp/values.yaml.
