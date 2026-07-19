@@ -26,9 +26,13 @@ port: 8000
 bindAddress: "0.0.0.0"
 # Host header allowlist. mcp-grafana defaults to loopback-only and rejects any
 # request whose Host isn't localhost/127.0.0.1 — including traffic arriving via
-# the Service DNS. List every host clients will dial. Empty string => allow all
-# (rendered as --allowed-hosts "" which disables the check; fine for a demo).
-allowedHosts: "grafana-mcp.mcp.svc.cluster.local,grafana-mcp,localhost,127.0.0.1"
+# the Service DNS. List every host clients will dial. The check matches the full
+# Host header, which INCLUDES the port when a client dials a non-default port —
+# so a `kubectl port-forward ... 8000:8000` client sends Host `localhost:8000`
+# and must have the port-qualified variant listed here, not just bare `localhost`.
+# Empty string => allow all (rendered as --allowed-hosts "" which disables the
+# check; fine for a demo).
+allowedHosts: "grafana-mcp.mcp.svc.cluster.local,grafana-mcp,localhost,127.0.0.1,localhost:8000,127.0.0.1:8000"
 # Path the streamable-http/sse endpoint is served on. Pinned so it's deterministic
 # across image builds (the latest/devel build defaults this to /mcp).
 endpointPath: "/mcp"
