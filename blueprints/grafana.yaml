@@ -73,7 +73,7 @@ grains:
         post-helm-install:
           source:
             store: torque-demo
-            path: scripts/grafana-create-sa-token.sh
+            path: scripts/grafana/grafana-create-sa-token.sh
           arguments: 'http://grafana.{{ .inputs.namespace }}.svc.cluster.local:{{ .inputs.service_port }} {{ .inputs.admin_user }} {{ .inputs.admin_password }} {{ .inputs.sa_name }} {{ .inputs.token_name }}'
           outputs:
             - grafana_url
