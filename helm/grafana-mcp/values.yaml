@@ -1,0 +1,42 @@
+# grafana-mcp chart values. Overridden by the Torque helm grain inputs — in
+# particular grafanaUrl and serviceAccountToken are computed at deploy time by
+# the Grafana blueprint and wired in via the environment.
+
+image:
+  repository: grafana/mcp-grafana
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# --- Required for the MCP server to reach Grafana ---
+# Base URL of the Grafana instance (in-cluster DNS). Wired from the Grafana grain.
+grafanaUrl: ""
+# Service-account token minted by the Grafana blueprint. Wired from the Grafana grain.
+serviceAccountToken: ""
+
+# --- Server transport config ---
+# streamable-http (recommended) or sse. stdio is not usable in k8s.
+transport: "streamable-http"
+# Port the MCP server listens on inside the pod and the Service exposes.
+port: 8000
+# The server binds this address. MUST be 0.0.0.0 (not localhost) to be reachable
+# through a k8s Service — the mcp-grafana default of localhost:8000 only accepts
+# in-pod loopback traffic.
+bindAddress: "0.0.0.0"
+# Host header allowlist. mcp-grafana defaults to loopback-only and rejects any
+# request whose Host isn't localhost/127.0.0.1 — including traffic arriving via
+# the Service DNS. List every host clients will dial. Empty string => allow all
+# (rendered as --allowed-hosts "" which disables the check; fine for a demo).
+allowedHosts: "grafana-mcp.mcp.svc.cluster.local,grafana-mcp,localhost,127.0.0.1"
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi

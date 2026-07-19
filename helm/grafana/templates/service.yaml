@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  # Fixed name so the in-cluster DNS is deterministic:
+  #   http://grafana.<namespace>.svc.cluster.local:<port>
+  name: grafana
+  labels:
+    app: grafana
+spec:
+  type: ClusterIP
+  selector:
+    app: grafana
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP

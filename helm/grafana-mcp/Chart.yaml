@@ -1,0 +1,6 @@
+apiVersion: v2
+name: grafana-mcp
+description: Grafana MCP server (grafana/mcp-grafana) exposed in-cluster over streamable-http.
+type: application
+version: 0.1.0
+appVersion: "latest"

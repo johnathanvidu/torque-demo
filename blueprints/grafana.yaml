@@ -1,0 +1,80 @@
+spec_version: 2
+description: Deploy Grafana into the "graphana" namespace of the agent's Kubernetes cluster, then mint a service-account token so downstream tools (the Grafana MCP server) can authenticate to it.
+
+metadata:
+  self-service: true
+  display-name: Grafana (in-cluster)
+  icon:
+    path: icons/grafana.svg
+
+inputs:
+  agent:
+    type: agent
+    description: Kubernetes agent that runs the Helm grain. Grafana is deployed into the cluster this agent resides in.
+  namespace:
+    type: string
+    default: graphana
+    description: Namespace to deploy Grafana into (created if missing). Also determines the in-cluster URL.
+  grafana_version:
+    type: string
+    default: "11.3.0"
+    description: Grafana image tag.
+  service_port:
+    type: string
+    default: "3000"
+    description: Port the in-cluster Grafana Service listens on.
+  admin_user:
+    type: string
+    default: admin
+    description: Grafana admin username (used to mint the service-account token, and available for basic-auth fallback).
+  admin_password:
+    type: string
+    default: admin
+    sensitive: true
+    description: Grafana admin password. Must not contain spaces (passed positionally to the token script).
+  sa_name:
+    type: string
+    default: torque-mcp
+    description: Name of the Grafana service account created for the MCP server.
+  token_name:
+    type: string
+    default: torque-mcp-token
+    description: Name of the service-account token minted for the MCP server.
+
+outputs:
+  # In-cluster base URL of Grafana, e.g. http://grafana.graphana.svc.cluster.local:3000
+  grafana_url:
+    value: '{{ .grains.grafana.scripts.post-helm-install.outputs.grafana_url }}'
+  # Freshly minted service-account token — the dynamically calculated auth input for the MCP server.
+  service_account_token:
+    value: '{{ .grains.grafana.scripts.post-helm-install.outputs.service_account_token }}'
+  grafana_admin_user:
+    value: '{{ .inputs.admin_user }}'
+  grafana_admin_password:
+    value: '{{ .inputs.admin_password }}'
+
+grains:
+  grafana:
+    kind: helm
+    spec:
+      source:
+        store: torque-demo
+        path: helm/grafana
+      agent:
+        name: '{{ .inputs.agent }}'
+      target-namespace: '{{ .inputs.namespace }}'
+      command-arguments: '--create-namespace --wait --timeout 5m'
+      inputs:
+        - image.tag: '{{ .inputs.grafana_version }}'
+        - adminUser: '{{ .inputs.admin_user }}'
+        - adminPassword: '{{ .inputs.admin_password }}'
+        - service.port: '{{ .inputs.service_port }}'
+      scripts:
+        post-helm-install:
+          source:
+            store: torque-demo
+            path: scripts/grafana-create-sa-token.sh
+          arguments: 'http://grafana.{{ .inputs.namespace }}.svc.cluster.local:{{ .inputs.service_port }} {{ .inputs.admin_user }} {{ .inputs.admin_password }} {{ .inputs.sa_name }} {{ .inputs.token_name }}'
+          outputs:
+            - grafana_url
+            - service_account_token

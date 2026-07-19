@@ -1,0 +1,25 @@
+# Minimal Grafana chart values. Overridden by the Torque helm grain inputs.
+
+image:
+  repository: grafana/grafana
+  tag: "11.3.0"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# Admin credentials. The MCP server can authenticate with these (basic auth),
+# but the demo's primary path is a service-account token generated post-install.
+adminUser: admin
+adminPassword: admin
+
+service:
+  # Port the in-cluster Service listens on. The container always serves on 3000.
+  port: 3000
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

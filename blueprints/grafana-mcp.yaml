@@ -1,0 +1,71 @@
+spec_version: 2
+description: Deploy the Grafana MCP server (grafana/mcp-grafana) into the "mcp" namespace and connect it to a Grafana instance. Auth (URL + service-account token) is calculated dynamically and wired in from the Grafana blueprint.
+
+metadata:
+  self-service: true
+  display-name: Grafana MCP Server
+  icon:
+    path: icons/grafana.svg
+
+inputs:
+  agent:
+    type: agent
+    description: Kubernetes agent that runs the Helm grain (same cluster as Grafana).
+  namespace:
+    type: string
+    default: mcp
+    description: Namespace to deploy the MCP server into (created if missing).
+  # ---- Dynamically calculated inputs (wired from the Grafana blueprint) ----
+  grafana_url:
+    type: string
+    description: In-cluster base URL of Grafana, e.g. http://grafana.graphana.svc.cluster.local:3000. Wired from the Grafana grain output.
+  service_account_token:
+    type: string
+    sensitive: true
+    description: Grafana service-account token the MCP server authenticates with. Minted at deploy time and wired from the Grafana grain output.
+  # ---- Server configuration ----
+  image_tag:
+    type: string
+    default: latest
+    description: grafana/mcp-grafana image tag.
+  transport:
+    type: string
+    default: streamable-http
+    allowed-values:
+      - streamable-http
+      - sse
+    description: MCP transport. stdio is not usable over a k8s Service.
+  port:
+    type: string
+    default: "8000"
+    description: Port the MCP server listens on and the Service exposes.
+  allowed_hosts:
+    type: string
+    default: grafana-mcp.mcp.svc.cluster.local,grafana-mcp,localhost,127.0.0.1
+    description: Host-header allowlist. mcp-grafana rejects requests whose Host isn't listed (default is loopback-only), so every hostname clients dial must appear here.
+
+outputs:
+  # In-cluster endpoint of the MCP server, for other in-cluster clients / agents.
+  mcp_endpoint:
+    value: 'http://grafana-mcp.{{ .inputs.namespace }}.svc.cluster.local:{{ .inputs.port }}/'
+  grafana_url:
+    value: '{{ .inputs.grafana_url }}'
+
+grains:
+  grafana-mcp:
+    kind: helm
+    spec:
+      source:
+        store: torque-demo
+        path: helm/grafana-mcp
+      agent:
+        name: '{{ .inputs.agent }}'
+      target-namespace: '{{ .inputs.namespace }}'
+      command-arguments: '--create-namespace --wait --timeout 3m'
+      inputs:
+        - image.tag: '{{ .inputs.image_tag }}'
+        - grafanaUrl: '{{ .inputs.grafana_url }}'
+        - serviceAccountToken: '{{ .inputs.service_account_token }}'
+        - transport: '{{ .inputs.transport }}'
+        - port: '{{ .inputs.port }}'
+        - allowedHosts: '{{ .inputs.allowed_hosts }}'
