@@ -6,11 +6,8 @@ metadata:
   display-name: Grafana MCP Server
   icon:
     path: icons/grafana.svg
-
-# Marks this as an MCP-server blueprint so a client can fetch it via the Torque API
-# by filtering on the label key/value (type=mcp).
-labels:
-  - type: mcp
+  blueprint-labels:
+    - type: mcp
 
 # Only three inputs - everything else (image tag, transport, port, endpoint path,
 # host allowlist, namespace) is fixed and lives in helm/grafana-mcp/values.yaml.
