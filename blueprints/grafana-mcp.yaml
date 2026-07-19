@@ -41,8 +41,8 @@ inputs:
     description: Port the MCP server listens on and the Service exposes.
   allowed_hosts:
     type: string
-    default: grafana-mcp.mcp.svc.cluster.local,grafana-mcp,localhost,127.0.0.1
-    description: Host-header allowlist. mcp-grafana rejects requests whose Host isn't listed (default is loopback-only), so every hostname clients dial must appear here.
+    default: grafana-mcp.mcp.svc.cluster.local,grafana-mcp,localhost,127.0.0.1,localhost:8000,127.0.0.1:8000
+    description: Host-header allowlist. mcp-grafana rejects requests whose Host isn't listed (default is loopback-only), so every hostname clients dial must appear here. The check matches the full Host header including port, so a `kubectl port-forward ... 8000:8000` client sends Host `localhost:8000` and needs the port-qualified entries, not just bare `localhost`.
   endpoint_path:
     type: string
     default: /mcp
