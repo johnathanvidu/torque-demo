@@ -4,6 +4,8 @@ description: Provision an Ubuntu Azure Linux VM with a generated SSH key pair an
 metadata:
   self-service: true
   display-name: Azure Ubuntu VM
+  icon:
+    path: icons/azure-vm.svg
 
 inputs:
   agent:

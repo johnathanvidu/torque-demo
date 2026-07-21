@@ -4,6 +4,8 @@ description: Provision a new Azure resource group.
 metadata:
   self-service: true
   display-name: Azure Resource Group
+  icon:
+    path: icons/azure-resource-group.svg
 
 inputs:
   agent:

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48px" height="48px" viewBox="0 0 48 48" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <title>Azure Virtual Network</title>
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <path d="M23,13 L25,13 L25,23 L23,23 L23,13 Z M13.5,32 L14.5,30.268 L23.196,35.286 L22.196,37.018 L13.5,32 Z M33.804,35.286 L34.804,30.268 L35.804,32 L27.108,37.018 L26.108,35.286 Z" fill="#0078D4"></path>
+        <circle fill="#0078D4" cx="24" cy="10" r="6"></circle>
+        <circle fill="#50E6FF" cx="24" cy="10" r="3"></circle>
+        <circle fill="#0078D4" cx="12" cy="36" r="6"></circle>
+        <circle fill="#50E6FF" cx="12" cy="36" r="3"></circle>
+        <circle fill="#0078D4" cx="36" cy="36" r="6"></circle>
+        <circle fill="#50E6FF" cx="36" cy="36" r="3"></circle>
+    </g>
+</svg>

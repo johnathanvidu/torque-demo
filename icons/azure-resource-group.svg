@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="48px" height="48px" viewBox="0 0 48 48" version="1.1" xmlns="http://www.w3.org/2000/svg">
+    <title>Azure Resource Group</title>
+    <g stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <path d="M7,6 L41,6 C42.105,6 43,6.895 43,8 L43,40 C43,41.105 42.105,42 41,42 L7,42 C5.895,42 5,41.105 5,40 L5,8 C5,6.895 5.895,6 7,6 Z M7,8 L7,40 L41,40 L41,8 L7,8 Z" fill="#0078D4" stroke="#0078D4" stroke-width="0.5" stroke-dasharray="3,2"></path>
+        <path d="M12,13 L22,13 L22,23 L12,23 L12,13 Z" fill="#50E6FF"></path>
+        <path d="M26,13 L36,13 L36,23 L26,23 L26,13 Z" fill="#0078D4"></path>
+        <path d="M12,25 L22,25 L22,35 L12,35 L12,25 Z" fill="#0078D4"></path>
+        <path d="M26,25 L36,25 L36,35 L26,35 L26,25 Z" fill="#50E6FF"></path>
+    </g>
+</svg>

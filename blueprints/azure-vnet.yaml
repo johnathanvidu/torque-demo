@@ -4,6 +4,8 @@ description: Provision an Azure virtual network with a single subnet into an exi
 metadata:
   self-service: true
   display-name: Azure Virtual Network
+  icon:
+    path: icons/azure-vnet.svg
 
 inputs:
   agent:
