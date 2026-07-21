@@ -1,0 +1,73 @@
+spec_version: 2
+description: Provision an Ubuntu Azure Linux VM with a generated SSH key pair and an allow-SSH NSG into an existing resource group.
+
+metadata:
+  self-service: true
+  display-name: Azure Ubuntu VM
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent used to run the Terraform grain.
+  vm_name:
+    type: string
+    default: torque-vm
+    description: Name of the VM and prefix for its associated resources.
+  resource_group_name:
+    type: string
+    description: Name of the existing resource group to deploy the VM into.
+  location:
+    type: string
+    default: eastus
+    description: Azure region in which to create the VM.
+  subnet_id:
+    type: string
+    description: ID of the subnet to attach the VM's network interface to.
+  vm_size:
+    type: string
+    default: Standard_B2s
+    description: Azure VM size (SKU).
+  admin_username:
+    type: string
+    default: azureuser
+    description: Admin username for SSH access.
+  ssh_ingress_cidr:
+    type: string
+    default: 0.0.0.0/0
+    description: CIDR block allowed to reach the VM over SSH (port 22).
+
+outputs:
+  vm_id:
+    value: '{{ .grains.vm.outputs.vm_id }}'
+  vm_name:
+    value: '{{ .grains.vm.outputs.vm_name }}'
+  public_ip:
+    value: '{{ .grains.vm.outputs.public_ip }}'
+  private_ip:
+    value: '{{ .grains.vm.outputs.private_ip }}'
+  admin_username:
+    value: '{{ .grains.vm.outputs.admin_username }}'
+
+grains:
+  vm:
+    kind: terraform
+    spec:
+      source:
+        store: torque-demo
+        path: terraform/azure/vm
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - vm_name: '{{ .inputs.vm_name }}'
+        - resource_group_name: '{{ .inputs.resource_group_name }}'
+        - location: '{{ .inputs.location }}'
+        - subnet_id: '{{ .inputs.subnet_id }}'
+        - vm_size: '{{ .inputs.vm_size }}'
+        - admin_username: '{{ .inputs.admin_username }}'
+        - ssh_ingress_cidr: '{{ .inputs.ssh_ingress_cidr }}'
+      outputs:
+        - vm_id
+        - vm_name
+        - public_ip
+        - private_ip
+        - admin_username

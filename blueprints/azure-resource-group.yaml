@@ -1,0 +1,44 @@
+spec_version: 2
+description: Provision a new Azure resource group.
+
+metadata:
+  self-service: true
+  display-name: Azure Resource Group
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent used to run the Terraform grain.
+  name:
+    type: string
+    default: torque-rg
+    description: Name of the resource group to create.
+  location:
+    type: string
+    default: eastus
+    description: Azure region in which to create the resource group.
+
+outputs:
+  resource_group_name:
+    value: '{{ .grains.resource_group.outputs.resource_group_name }}'
+  resource_group_id:
+    value: '{{ .grains.resource_group.outputs.resource_group_id }}'
+  location:
+    value: '{{ .grains.resource_group.outputs.location }}'
+
+grains:
+  resource_group:
+    kind: terraform
+    spec:
+      source:
+        store: torque-demo
+        path: terraform/azure/resource-group
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - name: '{{ .inputs.name }}'
+        - location: '{{ .inputs.location }}'
+      outputs:
+        - resource_group_name
+        - resource_group_id
+        - location

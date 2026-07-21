@@ -1,0 +1,61 @@
+spec_version: 2
+description: Provision an Azure virtual network with a single subnet into an existing resource group.
+
+metadata:
+  self-service: true
+  display-name: Azure Virtual Network
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent used to run the Terraform grain.
+  name:
+    type: string
+    default: torque-vnet
+    description: Name prefix for the virtual network and its subnet.
+  resource_group_name:
+    type: string
+    description: Name of the existing resource group to create the virtual network in.
+  location:
+    type: string
+    default: eastus
+    description: Azure region in which to create the virtual network.
+  address_space:
+    type: string
+    default: '["10.0.0.0/16"]'
+    description: Address space for the virtual network, as an HCL list of CIDR blocks.
+  subnet_prefix:
+    type: string
+    default: 10.0.1.0/24
+    description: CIDR block for the subnet (must be within the VNet address space).
+
+outputs:
+  vnet_id:
+    value: '{{ .grains.vnet.outputs.vnet_id }}'
+  vnet_name:
+    value: '{{ .grains.vnet.outputs.vnet_name }}'
+  subnet_id:
+    value: '{{ .grains.vnet.outputs.subnet_id }}'
+  subnet_name:
+    value: '{{ .grains.vnet.outputs.subnet_name }}'
+
+grains:
+  vnet:
+    kind: terraform
+    spec:
+      source:
+        store: torque-demo
+        path: terraform/azure/vnet
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - name: '{{ .inputs.name }}'
+        - resource_group_name: '{{ .inputs.resource_group_name }}'
+        - location: '{{ .inputs.location }}'
+        - address_space: '{{ .inputs.address_space }}'
+        - subnet_prefix: '{{ .inputs.subnet_prefix }}'
+      outputs:
+        - vnet_id
+        - vnet_name
+        - subnet_id
+        - subnet_name

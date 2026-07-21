@@ -1,0 +1,23 @@
+spec_version: 2
+description: This workflow starts all ec2s in the environment
+
+workflow:
+  scope: env_resource
+  labels-selector: AWS
+  resource-types: aws_instance
+  triggers:
+    - type: manual
+    
+inputs:
+  agent:
+    type: agent
+
+grains:
+  start_ec2:
+    kind: ansible
+    spec:
+      built-in: true
+      source:
+        path: https://github.com/QualiTorque/torque-actions.git//resource/aws-power-on-ec2-tf.yaml
+      agent:
+        name: '{{ .inputs.agent }}'
