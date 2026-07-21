@@ -1,0 +1,23 @@
+spec_version: 2
+description: This workflow deallocates a specific Azure VM in the environment
+
+workflow:
+  scope: env_resource
+  labels-selector: "Hypervisor:Azure"
+  resource-types: azurerm_linux_virtual_machine, azurerm_windows_virtual_machine
+  triggers:
+    - type: manual
+
+inputs:
+  agent:
+    type: agent
+
+grains:
+  stop_vm:
+    kind: ansible
+    spec:
+      built-in: true
+      source:
+        path: https://github.com/QualiTorque/torque-actions.git//resource/azure-deallocate-vm-tf.yaml
+      agent:
+        name: '{{ .inputs.agent }}'

@@ -1,0 +1,25 @@
+spec_version: 2
+description: This workflow deallocates all Azure VMs in the environment
+
+workflow:
+  scope: env
+  labels-selector: "Hypervisor:Azure"
+  triggers:
+    - type: manual
+    - type: cron
+      cron: '0 22 * * *' # every day at 22:00
+      overridable: true # Allow end-users to override the cron
+
+inputs:
+  agent:
+    type: agent
+
+grains:
+  pause_vm:
+    kind: ansible
+    spec:
+      built-in: true
+      source:
+        path: https://github.com/QualiTorque/torque-actions.git//resource/azure-deallocate-vm-tf.yaml
+      agent:
+        name: '{{ .inputs.agent }}'
