@@ -3,7 +3,7 @@ description: This workflow starts a specific Azure VM in the environment
 
 workflow:
   scope: env_resource
-  labels-selector: "Hypervisor:Azure"
+  labels-selector: "Hyperscaler:Azure"
   resource-types: azurerm_linux_virtual_machine, azurerm_windows_virtual_machine
   triggers:
     - type: manual

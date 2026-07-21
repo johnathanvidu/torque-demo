@@ -3,7 +3,7 @@ description: This workflow starts all ec2s in the environment
 
 workflow:
   scope: env_resource
-  labels-selector: AWS
+  labels-selector: "Hyperscaler:AWS"
   resource-types: aws_instance
   triggers:
     - type: manual

@@ -3,7 +3,7 @@ description: This workflow starts all ec2s in the environment
 
 workflow:
   scope: env
-  labels-selector: AWS
+  labels-selector: "Hyperscaler:AWS"
   triggers:
     - type: manual
     - type: cron 

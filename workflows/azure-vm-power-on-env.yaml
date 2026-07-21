@@ -3,7 +3,7 @@ description: This workflow starts all Azure VMs in the environment
 
 workflow:
   scope: env
-  labels-selector: "Hypervisor:Azure"
+  labels-selector: "Hyperscaler:Azure"
   triggers:
     - type: manual
     - type: cron

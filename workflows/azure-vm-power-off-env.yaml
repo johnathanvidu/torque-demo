@@ -3,7 +3,7 @@ description: This workflow deallocates all Azure VMs in the environment
 
 workflow:
   scope: env
-  labels-selector: "Hypervisor:Azure"
+  labels-selector: "Hyperscaler:Azure"
   triggers:
     - type: manual
     - type: cron
@@ -20,6 +20,6 @@ grains:
     spec:
       built-in: true
       source:
-        path: https://github.com/QualiTorque/torque-actions.git//resource/azure-deallocate-vm-tf.yaml
+        path: https://github.com/QualiTorque/torque-actions.git//resource/azure-power-off-vm-tf.yaml
       agent:
         name: '{{ .inputs.agent }}'
