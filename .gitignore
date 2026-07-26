@@ -45,3 +45,7 @@ terraform.rc
 
 .vscode/
 .github/
+.docs/
+# Python
+__pycache__/
+*.pyc
