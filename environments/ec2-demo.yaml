@@ -63,5 +63,6 @@ grains:
       inputs:
         - agent: vido-vido-prod
         - name: 'vido-test-{{ .inputs.prefix }}-bucket'
+        - region: eu-west-1
       outputs:
         - bucket_id
