@@ -6,7 +6,7 @@ labels:
 environment:
   environment_name: ec2-demo
   owner_email: johnathan.v@quali.com
-  state: active
+  state: inactive
   description: An environment to demonstrate starting and stopping EC2 instances with Torque.
 
 inputs:
@@ -42,26 +42,3 @@ grains:
         - subnet_id: '{{ .grains.vpc.outputs.subnet_id }}'
         - instance_type: t3.micro
         - instance_name: '{{ .inputs.prefix }}-ec2'
-  s3:
-    kind: blueprint
-    spec:
-      source:
-        store: torque-demo
-        path: blueprints/aws-s3.yaml
-      inputs:
-        - agent: vido-vido-prod
-        - name: 'vido-test-{{ .inputs.prefix }}-bucket'
-      outputs:
-        - bucket_id
-
-  s3_2:
-    kind: blueprint
-    spec:
-      source:
-        store: torque-demo
-        path: blueprints/aws-s3.yaml
-      inputs:
-        - agent: vido-vido-prod
-        - name: 'vido-test-{{ .inputs.prefix }}-bucket'
-      outputs:
-        - bucket_id
