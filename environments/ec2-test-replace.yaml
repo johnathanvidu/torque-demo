@@ -30,23 +30,15 @@ grains:
         - vpc_id
         - subnet_id
   ec2:
-    kind: terraform
+    kind: blueprint
     depends-on: vpc
     spec:
       source:
         store: torque-demo
-        path: terraform/aws/ec2
-      agent:
-        name: vido-vido-prod
+        path: blueprints/aws-ec2.yaml
       inputs:
-        - instance_name: '{{ .inputs.prefix }}-ec2'
-        - instance_type: t3.micro
-        - subnet_id: '{{ .grains.vpc.outputs.subnet_id }}'
+        - agent: vido-vido-prod
         - vpc_id: '{{ .grains.vpc.outputs.vpc_id }}'
-        - security_group_ids: '[]'
-        - ssh_ingress_cidrs: '["0.0.0.0/0"]'
-      outputs:
-        - instance_id
-        - public_ip
-        - private_ip
-        - key_pair_name
+        - subnet_id: '{{ .grains.vpc.outputs.subnet_id }}'
+        - instance_type: t3.micro
+        - instance_name: '{{ .inputs.prefix }}-ec2'
