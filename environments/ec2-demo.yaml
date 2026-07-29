@@ -42,16 +42,14 @@ grains:
         - subnet_id: '{{ .grains.vpc.outputs.subnet_id }}'
         - instance_type: t3.micro
         - instance_name: '{{ .inputs.prefix }}-ec2'
-  vpc2:
+  s3:
     kind: blueprint
     spec:
       source:
         store: torque-demo
-        path: blueprints/aws-vpc.yaml
+        path: blueprints/aws-s3.yaml
       inputs:
         - agent: vido-vido-prod
-        - name: '{{ .inputs.prefix }}-vpc'
-        - cidr_block: 10.5.0.0/16
+        - bucket_name: 'vido-test-{{ .inputs.prefix }}-bucket'
       outputs:
-        - vpc_id
-        - subnet_id
+        - bucket_id
