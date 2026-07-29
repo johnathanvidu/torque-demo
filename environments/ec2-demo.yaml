@@ -53,3 +53,15 @@ grains:
         - name: 'vido-test-{{ .inputs.prefix }}-bucket'
       outputs:
         - bucket_id
+
+  s3_2:
+    kind: blueprint
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/aws-s3.yaml
+      inputs:
+        - agent: vido-vido-prod
+        - name: 'vido-test-{{ .inputs.prefix }}-bucket'
+      outputs:
+        - bucket_id
