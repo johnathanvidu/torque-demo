@@ -31,6 +31,7 @@ grains:
         - subnet_id
   ec2:
     kind: terraform
+    depends-on: vpc
     spec:
       source:
         store: torque-demo
