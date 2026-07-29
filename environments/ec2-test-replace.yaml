@@ -36,14 +36,14 @@ grains:
         store: torque-demo
         path: terraform/aws/ec2
       agent:
-        name: '{{ .inputs.agent }}'
+        name: vido-vido-prod
       inputs:
-        - instance_name: '{{ .inputs.instance_name }}'
-        - instance_type: '{{ .inputs.instance_type }}'
-        - subnet_id: '{{ .inputs.subnet_id }}'
-        - vpc_id: '{{ .inputs.vpc_id }}'
-        - security_group_ids: '{{ .inputs.security_group_ids }}'
-        - ssh_ingress_cidrs: '{{ .inputs.ssh_ingress_cidrs }}'
+        - instance_name: '{{ .inputs.prefix }}-ec2'
+        - instance_type: t3.micro
+        - subnet_id: '{{ .grains.vpc.outputs.subnet_id }}'
+        - vpc_id: '{{ .grains.vpc.outputs.vpc_id }}'
+        - security_group_ids: '[]'
+        - ssh_ingress_cidrs: '["0.0.0.0/0"]'
       outputs:
         - instance_id
         - public_ip
