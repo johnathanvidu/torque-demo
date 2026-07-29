@@ -1,0 +1,51 @@
+spec_version: 2
+
+labels:
+  - Hyperscaler: AWS
+
+environment:
+  environment_name: ec2-replace-demo
+  owner_email: johnathan.v@quali.com
+  state: active
+  description: An environment to demonstrate starting and stopping EC2 instances with Torque.
+
+inputs:
+  prefix:
+    type: string
+    default: ec2-demo
+    description: Prefix for all resources created in this environment, to ensure uniqueness.
+
+grains:
+  vpc:
+    kind: blueprint
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/aws-vpc.yaml
+      inputs:
+        - agent: vido-vido-prod
+        - name: '{{ .inputs.prefix }}-vpc'
+        - cidr_block: 10.5.0.0/16
+      outputs:
+        - vpc_id
+        - subnet_id
+  ec2:
+    kind: terraform
+    spec:
+      source:
+        store: torque-demo
+        path: terraform/aws/ec2
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - instance_name: '{{ .inputs.instance_name }}'
+        - instance_type: '{{ .inputs.instance_type }}'
+        - subnet_id: '{{ .inputs.subnet_id }}'
+        - vpc_id: '{{ .inputs.vpc_id }}'
+        - security_group_ids: '{{ .inputs.security_group_ids }}'
+        - ssh_ingress_cidrs: '{{ .inputs.ssh_ingress_cidrs }}'
+      outputs:
+        - instance_id
+        - public_ip
+        - private_ip
+        - key_pair_name
