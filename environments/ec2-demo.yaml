@@ -14,6 +14,9 @@ inputs:
     type: string
     default: ec2-demo
     description: Prefix for all resources created in this environment, to ensure uniqueness.
+  region:
+    type: string
+    default: eu-west-1
 
 grains:
   vpc:
@@ -54,7 +57,7 @@ grains:
         use-storage: false
       inputs:
         - name: 'my-bucket'
-        - region: us-east-1
+        - region: '{{ .inputs.region }}'
       outputs:
         - s3_bucket_id
         - s3_bucket_arn
