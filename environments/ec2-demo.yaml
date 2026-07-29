@@ -50,6 +50,6 @@ grains:
         path: blueprints/aws-s3.yaml
       inputs:
         - agent: vido-vido-prod
-        - bucket_name: 'vido-test-{{ .inputs.prefix }}-bucket'
+        - name: 'vido-test-{{ .inputs.prefix }}-bucket'
       outputs:
         - bucket_id
