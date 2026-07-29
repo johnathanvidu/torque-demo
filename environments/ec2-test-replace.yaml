@@ -14,10 +14,6 @@ inputs:
     type: string
     default: ec2-demo
     description: Prefix for all resources created in this environment, to ensure uniqueness.
-  ש:
-    type: string
-    default: ec2-demo
-    description: Prefix for all resources created in this environment, to ensure uniqueness.
 
 grains:
   vpc:
@@ -46,6 +42,3 @@ grains:
         - subnet_id: '{{ .grains.vpc.outputs.subnet_id }}'
         - instance_type: t3.micro
         - instance_name: '{{ .inputs.prefix }}-ec2'
-
-
-        Gv36v8~!<uOo
