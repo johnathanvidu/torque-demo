@@ -1,0 +1,70 @@
+spec_version: 2
+description: Starts every Azure VM in the environment in ascending bootSequence tag order - tier 1 first, then 2, and so on. VMs with no bootSequence tag start last.
+
+workflow:
+  scope: env
+  labels-selector: "Hyperscaler:Azure"
+  triggers:
+    - type: manual
+    # The built-in azure-vm-power-on-env workflow already owns the 08:00 cron.
+    # Uncomment here (and remove it there) to switch the schedule to the sequenced start.
+    # - type: cron
+    #   cron: '0 8 * * *' # every day at 08:00 UTC
+    #   overridable: true
+  timeout: 60
+
+customization:
+  launch-form:
+    steps:
+      title:
+        visible: false
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent that runs the playbook. Needs Azure control-plane access.
+  boot_sequence_tag:
+    type: string
+    default: bootSequence
+    description: Tag holding each VM's boot order. Read from the environment contract, falling back to a live Azure lookup for VMs the contract has no tags for.
+  default_sequence:
+    type: string
+    default: '999'
+    description: Tier assigned to VMs that carry no boot sequence tag, so they start after every tagged tier.
+  tier_settle_seconds:
+    type: string
+    default: '30'
+    description: Seconds to wait after a tier is up before starting the next one, giving services time to come up. Set to 0 to move on immediately.
+
+outputs:
+  sequence_order:
+    value: '{{ .grains.power_on_by_sequence.outputs.sequence_order }}'
+    quick: true
+  vms_started:
+    value: '{{ .grains.power_on_by_sequence.outputs.vms_processed }}'
+    quick: true
+
+grains:
+  power_on_by_sequence:
+    kind: ansible
+    spec:
+      source:
+        store: torque-demo
+        path: ansible/azure/vm-boot-sequence.yaml
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - power_action: start
+        - reverse_order: 'false' # ascending: bootSequence 1 starts first
+        - boot_sequence_tag: '{{ .inputs.boot_sequence_tag }}'
+        - default_sequence: '{{ .inputs.default_sequence }}'
+        - tier_settle_seconds: '{{ .inputs.tier_settle_seconds }}'
+      inventory-file:
+        localhost:
+          hosts:
+            127.0.0.1:
+              ansible_connection: local
+      outputs:
+        - sequence_order
+        - vms_processed
+        - vm_count

@@ -1,0 +1,77 @@
+spec_version: 2
+description: Deallocates every Azure VM in the environment in bootSequence tag order - by default the reverse of boot order, so dependents go down before what they depend on.
+
+workflow:
+  scope: env
+  labels-selector: "Hyperscaler:Azure"
+  triggers:
+    - type: manual
+    # The built-in azure-vm-power-off-env workflow already owns the 22:00 cron.
+    # Uncomment here (and remove it there) to switch the schedule to the sequenced shutdown.
+    # - type: cron
+    #   cron: '0 22 * * *' # every day at 22:00 UTC
+    #   overridable: true
+  timeout: 45
+
+customization:
+  launch-form:
+    steps:
+      title:
+        visible: false
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent that runs the playbook. Needs Azure control-plane access.
+  reverse_order:
+    type: string
+    default: 'true'
+    allowed-values:
+      - 'true'
+      - 'false'
+    description: 'true: the highest bootSequence tier shuts down first, mirroring the boot order. false: bootSequence 1 shuts down first.'
+  boot_sequence_tag:
+    type: string
+    default: bootSequence
+    description: Tag holding each VM's boot order. Read from the environment contract, falling back to a live Azure lookup for VMs the contract has no tags for.
+  default_sequence:
+    type: string
+    default: '999'
+    description: Tier assigned to VMs that carry no boot sequence tag. With the default reverse order these shut down first.
+  tier_settle_seconds:
+    type: string
+    default: '0'
+    description: Seconds to wait after a tier is deallocated before moving to the next one, for graceful drain. Set to 0 to move on immediately.
+
+outputs:
+  sequence_order:
+    value: '{{ .grains.power_off_by_sequence.outputs.sequence_order }}'
+    quick: true
+  vms_stopped:
+    value: '{{ .grains.power_off_by_sequence.outputs.vms_processed }}'
+    quick: true
+
+grains:
+  power_off_by_sequence:
+    kind: ansible
+    spec:
+      source:
+        store: torque-demo
+        path: ansible/azure/vm-boot-sequence.yaml
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - power_action: stop
+        - reverse_order: '{{ .inputs.reverse_order }}'
+        - boot_sequence_tag: '{{ .inputs.boot_sequence_tag }}'
+        - default_sequence: '{{ .inputs.default_sequence }}'
+        - tier_settle_seconds: '{{ .inputs.tier_settle_seconds }}'
+      inventory-file:
+        localhost:
+          hosts:
+            127.0.0.1:
+              ansible_connection: local
+      outputs:
+        - sequence_order
+        - vms_processed
+        - vm_count
