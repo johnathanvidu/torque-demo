@@ -38,6 +38,25 @@ variable "ssh_ingress_cidr" {
   default     = "0.0.0.0/0"
 }
 
+variable "tags" {
+  description = "Optional tags applied to every taggable resource this module creates."
+  type        = map(string)
+  default     = {}
+}
+
+# Called out as its own variable rather than left to var.tags so the power-sequencing
+# workflows have a named, discoverable input instead of requiring a hand-written tag map.
+variable "boot_sequence" {
+  description = "Optional power-on order for this VM, surfaced as the bootSequence tag. Lower numbers are powered on first and, on shutdown, powered off last. Leave empty to omit the tag."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.boot_sequence == "" || can(regex("^[0-9]+$", var.boot_sequence))
+    error_message = "boot_sequence must be a non-negative integer such as \"1\", or empty to omit the tag."
+  }
+}
+
 # Ubuntu image reference. Defaults to the latest Ubuntu 24.04 LTS (Noble) Gen2 image.
 variable "image_publisher" {
   description = "Publisher of the OS image."

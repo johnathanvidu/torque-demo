@@ -1,3 +1,13 @@
+locals {
+  # bootSequence lands on the VM only. The power-sequencing workflows read the tag off the
+  # VM, and it would be meaningless noise on the NIC, NSG, and public IP. An empty
+  # boot_sequence merges nothing, so the tag is absent rather than set to "".
+  vm_tags = merge(
+    var.tags,
+    var.boot_sequence == "" ? {} : { bootSequence = var.boot_sequence }
+  )
+}
+
 # Generate an SSH key pair. The private key is exposed via a (sensitive) output.
 resource "tls_private_key" "this" {
   algorithm = "RSA"
@@ -10,6 +20,7 @@ resource "azurerm_public_ip" "this" {
   location            = var.location
   allocation_method   = "Static"
   sku                 = "Standard"
+  tags                = var.tags
 }
 
 resource "azurerm_network_security_group" "this" {
@@ -28,6 +39,8 @@ resource "azurerm_network_security_group" "this" {
     source_address_prefix      = var.ssh_ingress_cidr
     destination_address_prefix = "*"
   }
+
+  tags = var.tags
 }
 
 resource "azurerm_network_interface" "this" {
@@ -41,6 +54,8 @@ resource "azurerm_network_interface" "this" {
     private_ip_address_allocation = "Dynamic"
     public_ip_address_id          = azurerm_public_ip.this.id
   }
+
+  tags = var.tags
 }
 
 resource "azurerm_network_interface_security_group_association" "this" {
@@ -73,4 +88,6 @@ resource "azurerm_linux_virtual_machine" "this" {
     sku       = var.image_sku
     version   = var.image_version
   }
+
+  tags = local.vm_tags
 }
