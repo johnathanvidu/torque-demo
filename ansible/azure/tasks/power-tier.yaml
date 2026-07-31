@@ -1,0 +1,50 @@
+# Applies the requested power state to every VM in a single bootSequence tier.
+# Included once per tier, in order, by ansible/azure/vm-boot-sequence.yaml.
+
+- name: "Select the VMs in tier {{ tier }}"
+  ansible.builtin.set_fact:
+    tier_vms: "{{ sequenced_vms | selectattr('sequence', 'equalto', tier | int) | list }}"
+
+- name: "Tier {{ tier }}"
+  ansible.builtin.debug:
+    msg: "{{ boot_sequence_tag }}={{ tier }}: {{ power_action }} {{ tier_vms | map(attribute='name') | join(', ') }}"
+
+- name: "Apply the power state to tier {{ tier }}"
+  block:
+    - name: Start the VMs in this tier
+      azure.azcollection.azure_rm_virtualmachine:
+        resource_group: "{{ item.resource_group }}"
+        name: "{{ item.name }}"
+        started: true
+      loop: "{{ tier_vms }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: power_action == 'start'
+
+    # allocated: no deallocates rather than just stopping, so compute billing stops too.
+    - name: Deallocate the VMs in this tier
+      azure.azcollection.azure_rm_virtualmachine:
+        resource_group: "{{ item.resource_group }}"
+        name: "{{ item.name }}"
+        allocated: false
+      loop: "{{ tier_vms }}"
+      loop_control:
+        label: "{{ item.name }}"
+      when: power_action == 'stop'
+
+  rescue:
+    # Same fallback the built-in Torque actions use: the module can trip over some VM
+    # shapes (e.g. VMs created outside azurerm defaults) where the CLI still succeeds.
+    - name: Retry this tier with the Azure CLI
+      ansible.builtin.command:
+        argv: "{{ ['az', 'vm', (power_action == 'start') | ternary('start', 'deallocate'), '--ids', item.id] }}"
+      loop: "{{ tier_vms }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+- name: "Settle after tier {{ tier }}"
+  ansible.builtin.pause:
+    seconds: "{{ tier_settle_seconds | int }}"
+  when:
+    - (tier_settle_seconds | int) > 0
+    - tier != (tiers | last)

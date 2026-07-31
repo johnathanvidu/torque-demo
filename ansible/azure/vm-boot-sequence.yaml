@@ -1,0 +1,152 @@
+- name: Power Azure VMs in bootSequence tag order
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  collections:
+    - azure.azcollection
+
+  vars:
+    # Overridden by the Torque grain inputs (extra-vars).
+    power_action: start           # start | stop
+    boot_sequence_tag: bootSequence
+    default_sequence: 999         # tier used for VMs that carry no bootSequence tag
+    tier_settle_seconds: 0        # pause between tiers, once a tier has finished
+    reverse_order: false          # true -> highest tier first (normal for shutdown)
+    federated_login:
+      is_set: "{{ lookup('ansible.builtin.env', 'AZURE_FEDERATED_TOKEN_FILE', default=undefined) }}"
+
+  tasks:
+    - name: Validate power_action
+      ansible.builtin.fail:
+        msg: "power_action must be 'start' or 'stop', got '{{ power_action }}'."
+      when: power_action not in ['start', 'stop']
+
+    # Mirrors the auth flow of the built-in QualiTorque/torque-actions Azure power actions.
+    - name: Az federated login
+      ansible.builtin.shell: az login --service-principal -u $AZURE_CLIENT_ID -t $AZURE_TENANT_ID --federated-token $(cat $AZURE_FEDERATED_TOKEN_FILE)
+      when: federated_login.is_set is defined
+      args:
+        executable: /bin/bash
+
+    - name: Read the environment contract
+      ansible.builtin.set_fact:
+        contract: "{{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'CONTRACT_FILE_PATH')) | from_json }}"
+
+    # The contract lists every managed resource in the bounded environment. Azure VMs are
+    # picked out by their ARM id so this works for any grain that creates one. The tags
+    # attribute is carried along here and parsed below.
+    - name: Collect the Azure VMs in this environment
+      ansible.builtin.set_fact:
+        vm_resources: "{{ (vm_resources | default([])) + [{'id': candidate, 'tags_raw': attributes.tags | default('', true)}] }}"
+      vars:
+        attributes: "{{ item.attributes | default({}, true) }}"
+        identifier: "{{ item.identifier | default('', true) }}"
+        candidate: "{{ identifier if identifier is search(vm_id_pattern) else attributes.id | default('', true) }}"
+        vm_id_pattern: '(?i)/providers/Microsoft\.Compute/virtualMachines/'
+      loop: "{{ contract.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.identifier | default('unnamed resource') }}"
+      when: candidate is search(vm_id_pattern)
+
+    - name: Fail when the environment has no Azure VMs
+      ansible.builtin.fail:
+        msg: >-
+          No Azure virtual machines were found in this environment's contract.json.
+          Check that the environment actually contains VM grains and that grain
+          introspection has completed.
+      when: (vm_resources | default([]) | length) == 0
+
+    - name: Set the subscription
+      ansible.builtin.shell: az account set --subscription {{ vm_resources[0].id | regex_search('(?<=/subscriptions/)([a-fA-F0-9-]+)') }}
+      when: federated_login.is_set is defined
+      args:
+        executable: /bin/bash
+
+    # Resource group and VM name come straight out of the ARM id, so no Azure call is
+    # needed to identify a VM. The contract's tags attribute arrives as a JSON object -
+    # already a mapping in some introspection payloads, a JSON string in others - so both
+    # shapes are accepted. Anything else is treated as "no tags" and falls through to the
+    # cloud lookup rather than failing the run on a malformed value.
+    - name: Resolve identity and contract tags for each VM
+      ansible.builtin.set_fact:
+        vms: "{{ (vms | default([])) + [{'id': item.id, 'resource_group': resource_group, 'name': name, 'tags': tags}] }}"
+      vars:
+        resource_group: "{{ item.id | regex_search('(?i)/resourceGroups/([^/]+)', '\\1') | first }}"
+        name: "{{ item.id | regex_search('(?i)/virtualMachines/([^/]+)', '\\1') | first }}"
+        tags_text: "{{ item.tags_raw | string | trim }}"
+        tags: "{{ item.tags_raw if (item.tags_raw is mapping) else (tags_text | from_json if tags_text.startswith('{') else {}) }}"
+      loop: "{{ vm_resources | unique(attribute='id') }}"
+      loop_control:
+        label: "{{ item.id }}"
+
+    # Only for VMs the contract had no tags for. rejectattr with no test keeps the falsy
+    # (empty) tag sets.
+    - name: Fetch tags from Azure for VMs with no tags in the contract
+      azure.azcollection.azure_rm_virtualmachine_info:
+        resource_group: "{{ item.resource_group }}"
+        name: "{{ item.name }}"
+      loop: "{{ vms | rejectattr('tags') | list }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: vm_info
+
+    - name: Index the tags fetched from Azure by VM id
+      ansible.builtin.set_fact:
+        fetched_tags: "{{ (fetched_tags | default({})) | combine({item.item.id: vm_tags}) }}"
+      vars:
+        vm_tags: "{{ (item.vms | default([], true) | first | default({}, true)).tags | default({}, true) }}"
+      loop: "{{ vm_info.results | default([]) }}"
+      loop_control:
+        label: "{{ item.item.name }}"
+
+    - name: Attach the boot sequence of each VM
+      ansible.builtin.set_fact:
+        sequenced_vms: "{{ (sequenced_vms | default([])) + [item | combine({'sequence': sequence | int, 'tag_source': tag_source})] }}"
+      vars:
+        tags: "{{ item.tags if item.tags else (fetched_tags | default({}))[item.id] | default({}, true) }}"
+        sequence: "{{ tags[boot_sequence_tag] | default(default_sequence, true) }}"
+        tag_source: "{{ 'contract' if item.tags else 'azure' }}"
+      loop: "{{ vms }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # map('int') matters: without it a stringified sequence would sort lexicographically
+    # and put tier 10 ahead of tier 2.
+    - name: Compute the tier order
+      ansible.builtin.set_fact:
+        tiers: "{{ sequenced_vms | map(attribute='sequence') | map('int') | unique | sort }}"
+
+    - name: Reverse the tier order
+      ansible.builtin.set_fact:
+        tiers: "{{ tiers | reverse | list }}"
+      when: reverse_order | bool
+
+    - name: Show the plan
+      ansible.builtin.debug:
+        msg: >-
+          {{ power_action }} order: {{ tiers | map('string') | join(' -> ') }}
+          ({{ sequenced_vms | length }} VM(s):
+          {{ sequenced_vms | map(attribute='name') | join(', ') }};
+          tags read from contract for
+          {{ sequenced_vms | selectattr('tag_source', 'equalto', 'contract') | list | length }},
+          from Azure for
+          {{ sequenced_vms | selectattr('tag_source', 'equalto', 'azure') | list | length }})
+
+    # include_tasks with a loop runs strictly sequentially, which is what makes the
+    # tiers a real barrier: tier N finishes before tier N+1 is touched.
+    - name: Power the VMs tier by tier
+      ansible.builtin.include_tasks: tasks/power-tier.yaml
+      loop: "{{ tiers }}"
+      loop_control:
+        loop_var: tier
+
+    - name: Export outputs to Torque
+      torque.collections.export_torque_outputs:
+        outputs:
+          sequence_order: "{{ tiers | map('string') | join(' -> ') }}"
+          vms_processed: "{{ sequenced_vms | map(attribute='name') | join(', ') }}"
+          vm_count: "{{ sequenced_vms | length }}"
+      delegate_to: localhost
+      run_once: true
+      tags: always
+      ignore_errors: true   # allows standalone testing outside Torque
