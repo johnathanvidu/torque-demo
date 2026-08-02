@@ -7,7 +7,7 @@ labels:
 environment:
   environment_name: kafka-demo
   owner_email: johnathan.v@quali.com
-  state: active
+  state: inactive
   description: A managed-Kafka pipeline (MSK + producer/consumer + live dashboard) used to demo agentic troubleshooting of infra that suddenly breaks.
 
 inputs:
