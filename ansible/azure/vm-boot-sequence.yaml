@@ -128,7 +128,10 @@
         contract: "{{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'CONTRACT_FILE_PATH')) | from_json }}"
 
     # Azure VMs are picked out by their ARM id, so this covers any grain that creates one.
-    # The tags attribute is carried along here and parsed below.
+    # In practice `identifier` is the Terraform address (azurerm_linux_virtual_machine.this,
+    # identical across grains) and the ARM id lives in attributes.id, so the id is taken
+    # from whichever field actually carries it. The tags attribute rides along for parsing
+    # below, and duplicate contract entries are collapsed by the unique() further down.
     - name: Collect the Azure VMs in this environment
       ansible.builtin.set_fact:
         vm_resources: "{{ (vm_resources | default([])) + [{'id': candidate, 'tags_raw': attributes.tags | default('', true)}] }}"
@@ -139,7 +142,7 @@
         vm_id_pattern: '(?i)/providers/Microsoft\.Compute/virtualMachines/'
       loop: "{{ contract.resources | default([]) }}"
       loop_control:
-        label: "{{ item.identifier | default('unnamed resource') }}"
+        label: "{{ (item.attributes | default({}, true)).id | default(item.identifier | default('unnamed resource', true), true) }}"
       when: candidate is search(vm_id_pattern)
 
     - name: Fail when the environment has no Azure VMs
@@ -151,18 +154,27 @@
       when: (vm_resources | default([]) | length) == 0
 
     # Resource group and VM name come straight out of the ARM id, so no Azure call is
-    # needed to identify a VM. The contract's tags attribute arrives as a JSON object -
-    # already a mapping in some introspection payloads, a JSON string in others - so both
-    # shapes are accepted. Anything else is treated as "no tags" and falls through to the
-    # REST lookup rather than failing the run on a malformed value.
+    # needed to identify a VM. The contract's tags attribute is a mapping in some
+    # introspection payloads and a JSON string in others, so both shapes are accepted.
+    # Anything else is treated as "no tags" and falls through to the REST lookup rather
+    # than failing the run on a malformed value.
+    #
+    # This is deliberately one expression with no intermediate string variable. Under
+    # Jinja's native mode a rendered var is literal_eval'd, so `{{ raw | string | trim }}`
+    # on a JSON string hands back a dict, and calling .startswith on it dies with
+    # "'dict object' has no attribute 'startswith'". Referencing item.tags_raw directly
+    # and guarding with `is string` keeps the string operations on actual strings.
     - name: Resolve identity and contract tags for each VM
       ansible.builtin.set_fact:
         vms: "{{ (vms | default([])) + [{'id': item.id, 'resource_group': resource_group, 'name': name, 'tags': parsed_tags}] }}"
       vars:
         resource_group: "{{ item.id | regex_search('(?i)/resourceGroups/([^/]+)', '\\1') | first }}"
         name: "{{ item.id | regex_search('(?i)/virtualMachines/([^/]+)', '\\1') | first }}"
-        tags_text: "{{ item.tags_raw | string | trim }}"
-        parsed_tags: "{{ item.tags_raw if (item.tags_raw is mapping) else (tags_text | from_json if tags_text.startswith('{') else {}) }}"
+        parsed_tags: >-
+          {{ item.tags_raw if item.tags_raw is mapping
+             else (item.tags_raw | from_json
+                   if (item.tags_raw is string and (item.tags_raw | trim).startswith('{'))
+                   else {}) }}
       loop: "{{ vm_resources | unique(attribute='id') }}"
       loop_control:
         label: "{{ item.id }}"
