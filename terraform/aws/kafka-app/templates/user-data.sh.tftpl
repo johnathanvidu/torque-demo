@@ -1,0 +1,28 @@
+#!/bin/bash
+set -euxo pipefail
+
+# --- install runtime ---------------------------------------------------------
+dnf install -y python3-pip
+
+# --- fetch the app from the artifact bucket ----------------------------------
+mkdir -p /opt/kafka-demo
+aws s3 sync "s3://${app_bucket}/app" /opt/kafka-demo --region "${region}"
+
+python3 -m pip install --upgrade pip
+python3 -m pip install -r /opt/kafka-demo/requirements.txt
+
+# --- runtime configuration ---------------------------------------------------
+mkdir -p /etc/kafka-demo /var/lib/kafka-demo
+cat > /etc/kafka-demo/config.env <<CONFIG
+AWS_REGION=${region}
+BROKERS=${brokers}
+PRODUCER_TOPIC=${producer_topic}
+TOPIC_PARAM=${topic_param}
+CONSUMER_GROUP=${consumer_group}
+STATUS_FILE=${status_file}
+CONFIG
+
+# --- install + start the three services --------------------------------------
+cp /opt/kafka-demo/units/*.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now kafka-demo-producer kafka-demo-consumer kafka-demo-dashboard

@@ -5,7 +5,7 @@ metadata:
   self-service: true
   display-name: Kafka Demo App
   icon:
-    path: icons/ec2.svg
+    path: icons/kafka.svg
 
 inputs:
   agent:

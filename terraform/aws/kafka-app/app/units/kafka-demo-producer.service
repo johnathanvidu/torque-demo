@@ -1,0 +1,14 @@
+[Unit]
+Description=Kafka demo producer
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/kafka-demo/config.env
+ExecStart=/usr/bin/python3 /opt/kafka-demo/producer.py
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target
