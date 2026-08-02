@@ -1,0 +1,50 @@
+spec_version: 2
+
+labels:
+  - kubernetes
+  - grafana
+  - mcp
+
+environment:
+  environment_name: grafana-mcp-demo
+  owner_email: johnathan.v@quali.com
+  state: inactive
+  description: Deploys Grafana (grafana ns) and the Grafana MCP server (mcp ns) into the agent's Kubernetes cluster. The MCP server's Grafana URL and auth token are calculated dynamically from the Grafana deployment and wired in.
+
+inputs:
+  # Must be a Kubernetes agent residing in the target cluster.
+  # TODO: replace with your actual Torque Kubernetes agent name.
+  k8s_agent:
+    type: string
+    default: k8s-agent    
+    description: Name of the Kubernetes agent (and runner cluster) to deploy into.
+
+grains:
+  grafana:
+    kind: blueprint
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/grafana.yaml
+      inputs:
+        - agent: '{{ .inputs.k8s_agent }}'
+        - namespace: grafana
+      outputs:
+        - grafana_url
+        - service_account_token
+        - grafana_admin_user
+        - grafana_admin_password
+
+  mcp:
+    kind: blueprint
+    depends-on: grafana
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/grafana-mcp.yaml
+      inputs:
+        - agent: '{{ .inputs.k8s_agent }}'
+        - grafana_url: '{{ .grains.grafana.outputs.grafana_url }}'
+        - service_account_token: '{{ .grains.grafana.outputs.service_account_token }}'
+      outputs:
+        - mcp_endpoint

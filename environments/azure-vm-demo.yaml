@@ -1,0 +1,65 @@
+spec_version: 2
+
+labels:
+  - Azure
+
+environment:
+  environment_name: azure-vm-demo
+  owner_email: johnathan.v@quali.com
+  state: inactive
+  description: An environment that provisions an Azure resource group, a virtual network, and an Ubuntu VM with Torque.
+
+inputs:
+  prefix:
+    type: string
+    default: azure-vm-demo
+    description: Prefix for all resources created in this environment, to ensure uniqueness.
+  location:
+    type: string
+    default: eastus
+    description: Azure region for all resources in this environment.
+
+grains:
+  resource_group:
+    kind: blueprint
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/azure-resource-group.yaml
+      inputs:
+        - agent: vido-vido-prod
+        - name: '{{ .inputs.prefix }}-rg'
+        - location: '{{ .inputs.location }}'
+      outputs:
+        - resource_group_name
+  vnet:
+    kind: blueprint
+    depends-on: resource_group
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/azure-vnet.yaml
+      inputs:
+        - agent: vido-vido-prod
+        - name: '{{ .inputs.prefix }}'
+        - resource_group_name: '{{ .grains.resource_group.outputs.resource_group_name }}'
+        - location: '{{ .inputs.location }}'
+        - address_space: '["10.0.0.0/16"]'
+        - subnet_prefix: 10.0.1.0/24
+      outputs:
+        - subnet_id
+  vm:
+    kind: blueprint
+    depends-on: resource_group, vnet
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/azure-vm.yaml
+      inputs:
+        - agent: vido-vido-prod
+        - vm_name: '{{ .inputs.prefix }}-vm'
+        - resource_group_name: '{{ .grains.resource_group.outputs.resource_group_name }}'
+        - location: '{{ .inputs.location }}'
+        - subnet_id: '{{ .grains.vnet.outputs.subnet_id }}'
+        - vm_size: Standard_B2s
+        - admin_username: azureuser
