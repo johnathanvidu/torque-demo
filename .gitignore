@@ -49,3 +49,5 @@ terraform.rc
 # Python
 __pycache__/
 *.pyc
+# Generated app bundle
+terraform/aws/kafka-app/app.zip

@@ -27,8 +27,3 @@ output "consumer_topic_param" {
   description = "SSM parameter holding the consumer's topic. The wiring demo overwrites this."
   value       = aws_ssm_parameter.consumer_topic.name
 }
-
-output "artifact_bucket" {
-  description = "S3 bucket holding the app code."
-  value       = aws_s3_bucket.app.id
-}

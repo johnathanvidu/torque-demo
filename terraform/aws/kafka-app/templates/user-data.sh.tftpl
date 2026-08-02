@@ -2,11 +2,14 @@
 set -euxo pipefail
 
 # --- install runtime ---------------------------------------------------------
-dnf install -y python3-pip
+dnf install -y python3-pip unzip
 
-# --- fetch the app from the artifact bucket ----------------------------------
+# --- unpack the app (embedded as a base64 zip in this user-data) --------------
 mkdir -p /opt/kafka-demo
-aws s3 sync "s3://${app_bucket}/app" /opt/kafka-demo --region "${region}"
+base64 -d > /tmp/kafka-demo-app.zip <<'APPZIP'
+${app_zip_b64}
+APPZIP
+unzip -o /tmp/kafka-demo-app.zip -d /opt/kafka-demo
 
 python3 -m pip install --upgrade pip
 python3 -m pip install -r /opt/kafka-demo/requirements.txt

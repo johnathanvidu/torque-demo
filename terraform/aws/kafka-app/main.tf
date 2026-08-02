@@ -33,32 +33,17 @@ locals {
   #   group:   arn:aws:kafka:region:acct:group/NAME/UUID/<group>
   topic_arns = "${replace(var.cluster_arn, ":cluster/", ":topic/")}/*"
   group_arns = "${replace(var.cluster_arn, ":cluster/", ":group/")}/*"
-
-  app_files = fileset("${path.module}/app", "**")
 }
 
-# --- artifact bucket: how the app code reaches the instance ------------------
-resource "random_string" "suffix" {
-  length  = 6
-  special = false
-  upper   = false
-}
-
-resource "aws_s3_bucket" "app" {
-  bucket        = "${var.name}-app-${random_string.suffix.result}"
-  force_destroy = true
-
-  tags = {
-    Name = "${var.name}-app"
-  }
-}
-
-resource "aws_s3_object" "app" {
-  for_each = local.app_files
-  bucket   = aws_s3_bucket.app.id
-  key      = "app/${each.value}"
-  source   = "${path.module}/app/${each.value}"
-  etag     = filemd5("${path.module}/app/${each.value}")
+# --- app delivery: zip the app dir and embed it in the instance user-data ----
+# We deliver via user-data (not S3) because Torque injects its own default tags
+# onto every resource, and S3 *objects* cap at 10 tags — so aws_s3_object uploads
+# fail with "Object tags cannot be greater than 10". The zip is ~10 KB base64,
+# well under the 16 KB user-data limit.
+data "archive_file" "app" {
+  type        = "zip"
+  source_dir  = "${path.module}/app"
+  output_path = "${path.module}/app.zip"
 }
 
 # --- the mutable wiring value the consumer reads -----------------------------
@@ -124,7 +109,7 @@ resource "aws_iam_role_policy_attachment" "ssm" {
   policy_arn = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
 }
 
-# Baseline: pull the app from S3 and read the consumer-topic parameter.
+# Baseline: read the consumer-topic parameter at runtime.
 resource "aws_iam_role_policy" "runtime" {
   name = "runtime"
   role = aws_iam_role.app.id
@@ -132,11 +117,6 @@ resource "aws_iam_role_policy" "runtime" {
   policy = jsonencode({
     Version = "2012-10-17"
     Statement = [
-      {
-        Effect   = "Allow"
-        Action   = ["s3:GetObject", "s3:ListBucket"]
-        Resource = [aws_s3_bucket.app.arn, "${aws_s3_bucket.app.arn}/*"]
-      },
       {
         Effect   = "Allow"
         Action   = ["ssm:GetParameter"]
@@ -202,16 +182,13 @@ resource "aws_instance" "app" {
 
   user_data = templatefile("${path.module}/templates/user-data.sh.tftpl", {
     region         = var.region
-    app_bucket     = aws_s3_bucket.app.id
+    app_zip_b64    = filebase64(data.archive_file.app.output_path)
     brokers        = var.bootstrap_brokers
     producer_topic = var.topic_name
     topic_param    = aws_ssm_parameter.consumer_topic.name
     consumer_group = "${var.name}-consumers"
     status_file    = "/var/lib/kafka-demo/status.json"
   })
-
-  # Make sure the code is in the bucket before the instance tries to sync it.
-  depends_on = [aws_s3_object.app]
 
   tags = {
     Name = "${var.name}-kafka-app"
