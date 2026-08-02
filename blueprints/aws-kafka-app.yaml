@@ -1,0 +1,87 @@
+spec_version: 2
+description: Deploy the Kafka demo app (producer, consumer, and a live dashboard) on an EC2 instance that connects to MSK over IAM.
+
+metadata:
+  self-service: true
+  display-name: Kafka Demo App
+  icon:
+    path: icons/ec2.svg
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent used to run the Terraform grain.
+  name:
+    type: string
+    default: kafka-demo
+    description: Name prefix for the app resources (break/reset scripts locate resources by this prefix).
+  region:
+    type: string
+    default: eu-west-1
+    description: AWS region.
+  vpc_id:
+    type: string
+    description: VPC to launch the app instance in (same VPC as the MSK brokers).
+  subnet_id:
+    type: string
+    description: Public subnet for the app instance.
+  bootstrap_brokers:
+    type: string
+    description: MSK SASL/IAM bootstrap broker string (wired from the MSK grain).
+  cluster_arn:
+    type: string
+    description: MSK cluster ARN, used to scope the app's kafka-cluster IAM permissions (wired from the MSK grain).
+  topic_name:
+    type: string
+    default: orders
+    description: Topic the producer writes to and the consumer starts on (wired from the MSK grain).
+  instance_type:
+    type: string
+    default: t3.small
+    description: App instance type.
+  dashboard_ingress_cidrs:
+    type: string
+    default: '["0.0.0.0/0"]'
+    description: CIDR blocks allowed to reach the dashboard on port 8080, as an HCL list.
+
+outputs:
+  dashboard_url:
+    value: '{{ .grains.app.outputs.dashboard_url }}'
+    kind: link
+  instance_id:
+    value: '{{ .grains.app.outputs.instance_id }}'
+  public_ip:
+    value: '{{ .grains.app.outputs.public_ip }}'
+  role_name:
+    value: '{{ .grains.app.outputs.role_name }}'
+  consumer_topic_param:
+    value: '{{ .grains.app.outputs.consumer_topic_param }}'
+  app_security_group_id:
+    value: '{{ .grains.app.outputs.app_security_group_id }}'
+
+grains:
+  app:
+    kind: terraform
+    spec:
+      source:
+        store: torque-demo
+        path: terraform/aws/kafka-app
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - name: '{{ .inputs.name }}'
+        - region: '{{ .inputs.region }}'
+        - vpc_id: '{{ .inputs.vpc_id }}'
+        - subnet_id: '{{ .inputs.subnet_id }}'
+        - bootstrap_brokers: '{{ .inputs.bootstrap_brokers }}'
+        - cluster_arn: '{{ .inputs.cluster_arn }}'
+        - topic_name: '{{ .inputs.topic_name }}'
+        - instance_type: '{{ .inputs.instance_type }}'
+        - dashboard_ingress_cidrs: '{{ .inputs.dashboard_ingress_cidrs }}'
+      outputs:
+        - dashboard_url
+        - instance_id
+        - public_ip
+        - role_name
+        - consumer_topic_param
+        - app_security_group_id

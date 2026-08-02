@@ -1,0 +1,112 @@
+spec_version: 2
+description: Provision an Amazon MSK (managed Kafka) cluster directly from the public terraform-aws-modules/msk-kafka-cluster/aws module, into a VPC created by the public terraform-aws-modules/vpc module.
+
+metadata:
+  self-service: true
+  display-name: AWS MSK (Kafka) - Registry Module
+  icon:
+    path: icons/kafka.svg
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent used to run the Terraform grains. Must have AWS credentials/permissions to create VPC and MSK resources.
+  name:
+    type: string
+    default: kafka
+    description: Name prefix for the VPC and MSK cluster.
+  region:
+    type: string
+    default: eu-west-1
+    description: AWS region to deploy into.
+  vpc_cidr:
+    type: string
+    default: 10.10.0.0/16
+    description: CIDR block for the VPC.
+  azs:
+    type: string
+    default: '["eu-west-1a","eu-west-1b","eu-west-1c"]'
+    description: JSON list of availability zones for the broker subnets.
+  private_subnets:
+    type: string
+    default: '["10.10.1.0/24","10.10.2.0/24","10.10.3.0/24"]'
+    description: JSON list of private subnet CIDRs (one per AZ). Broker count must be a multiple of the subnet count.
+  kafka_version:
+    type: string
+    default: "3.6.0"
+    description: Apache Kafka version for the cluster.
+  number_of_broker_nodes:
+    type: string
+    default: "3"
+    description: Number of broker nodes. Must be a multiple of the number of subnets/AZs.
+  broker_node_instance_type:
+    type: string
+    default: kafka.t3.small
+    description: EC2 instance type used for the broker nodes.
+  broker_node_storage_info:
+    type: string
+    default: '{"ebs_storage_info":{"volume_size":100}}'
+    description: 'JSON object describing broker EBS storage. Example: {"ebs_storage_info":{"volume_size":100}}'
+
+outputs:
+  vpc_id:
+    value: '{{ .grains.vpc.outputs.vpc_id }}'
+  arn:
+    value: '{{ .grains.msk.outputs.arn }}'
+  cluster_name:
+    value: '{{ .grains.msk.outputs.cluster_name }}'
+  bootstrap_brokers:
+    value: '{{ .grains.msk.outputs.bootstrap_brokers }}'
+  bootstrap_brokers_tls:
+    value: '{{ .grains.msk.outputs.bootstrap_brokers_tls }}'
+  current_version:
+    value: '{{ .grains.msk.outputs.current_version }}'
+
+grains:
+  vpc:
+    kind: terraform
+    spec:
+      # Public terraform-aws-modules/vpc module (repo root is a runnable root module).
+      source:
+        path: https://github.com/terraform-aws-modules/terraform-aws-vpc
+      agent:
+        name: '{{ .inputs.agent }}'
+      env-vars:
+        - AWS_REGION: '{{ .inputs.region }}'
+        - AWS_DEFAULT_REGION: '{{ .inputs.region }}'
+      inputs:
+        - name: '{{ .inputs.name }}-vpc'
+        - cidr: '{{ .inputs.vpc_cidr }}'
+        - azs: '{{ .inputs.azs }}'
+        - private_subnets: '{{ .inputs.private_subnets }}'
+      outputs:
+        - vpc_id
+        - private_subnets
+        - default_security_group_id
+
+  msk:
+    kind: terraform
+    depends-on: vpc
+    spec:
+      # Public terraform-aws-modules/msk-kafka-cluster module (repo root is a runnable root module).
+      source:
+        path: https://github.com/terraform-aws-modules/terraform-aws-msk-kafka-cluster
+      agent:
+        name: '{{ .inputs.agent }}'
+      env-vars:
+        - AWS_REGION: '{{ .inputs.region }}'
+        - AWS_DEFAULT_REGION: '{{ .inputs.region }}'
+      inputs:
+        - name: '{{ .inputs.name }}'
+        - kafka_version: '{{ .inputs.kafka_version }}'
+        - number_of_broker_nodes: '{{ .inputs.number_of_broker_nodes }}'
+        - broker_node_instance_type: '{{ .inputs.broker_node_instance_type }}'
+        - broker_node_client_subnets: '{{ .grains.vpc.outputs.private_subnets }}'
+        - broker_node_security_groups: '["{{ .grains.vpc.outputs.default_security_group_id }}"]'
+        - broker_node_storage_info: '{{ .inputs.broker_node_storage_info }}'
+      outputs:
+        - arn
+        - cluster_name
+        - bootstrap_brokers
+        - bootstrap_brokers_tls
+        - current_version

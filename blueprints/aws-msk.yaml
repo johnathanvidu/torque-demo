@@ -1,0 +1,70 @@
+spec_version: 2
+description: Provision an Amazon MSK (managed Kafka) cluster with IAM authentication, in an existing VPC.
+
+metadata:
+  self-service: true
+  display-name: AWS MSK (Managed Kafka)
+  icon:
+    path: icons/kafka.svg
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent used to run the Terraform grain.
+  name:
+    type: string
+    default: kafka-demo
+    description: Name prefix for the MSK cluster and its resources.
+  vpc_id:
+    type: string
+    description: VPC in which to place the broker subnets and security group.
+  vpc_cidr_block:
+    type: string
+    description: CIDR block of the VPC. Broker ingress on 9098 is allowed from this range.
+  kafka_version:
+    type: string
+    default: "3.6.0"
+    description: Apache Kafka version for the cluster.
+  broker_instance_type:
+    type: string
+    default: kafka.t3.small
+    description: Broker instance type.
+  topic_name:
+    type: string
+    default: orders
+    description: Topic the producer writes to and the consumer reads from. Surfaced as an output to wire into the app.
+
+outputs:
+  bootstrap_brokers:
+    value: '{{ .grains.msk.outputs.bootstrap_brokers }}'
+  cluster_arn:
+    value: '{{ .grains.msk.outputs.cluster_arn }}'
+  cluster_name:
+    value: '{{ .grains.msk.outputs.cluster_name }}'
+  broker_security_group_id:
+    value: '{{ .grains.msk.outputs.broker_security_group_id }}'
+  topic_name:
+    value: '{{ .grains.msk.outputs.topic_name }}'
+
+grains:
+  msk:
+    kind: terraform
+    spec:
+      source:
+        store: torque-demo
+        path: terraform/aws/msk
+      agent:
+        name: '{{ .inputs.agent }}'
+      inputs:
+        - name: '{{ .inputs.name }}'
+        - vpc_id: '{{ .inputs.vpc_id }}'
+        - vpc_cidr_block: '{{ .inputs.vpc_cidr_block }}'
+        - kafka_version: '{{ .inputs.kafka_version }}'
+        - broker_instance_type: '{{ .inputs.broker_instance_type }}'
+        - topic_name: '{{ .inputs.topic_name }}'
+      outputs:
+        - bootstrap_brokers
+        - cluster_arn
+        - cluster_name
+        - broker_security_group_id
+        - topic_name

@@ -1,0 +1,45 @@
+spec_version: 2
+description: 'Fix the "revoked access" break: re-attach the kafka-access inline policy to the app instance role and roll the consumer so it re-authenticates to MSK.'
+
+workflow:
+  scope: env
+  labels-selector: kafka
+  triggers:
+    - type: manual
+  timeout: 10
+
+inputs:
+  agent:
+    type: agent
+
+grains:
+  restore_access:
+    kind: shell
+    spec:
+      agent:
+        name: '{{ .inputs.agent }}'
+      env-vars:
+        - PREFIX: '{{ .bindings.inputs.prefix }}'
+        - AWS_DEFAULT_REGION: '{{ .bindings.inputs.region }}'
+      activities:
+        deploy:
+          commands:
+            - |
+              set -euo pipefail
+              CLUSTER_ARN=$(aws kafka list-clusters-v2 --cluster-name-filter "$PREFIX" \
+                --query 'ClusterInfoList[0].ClusterArn' --output text)
+              TOPIC_ARN="$(echo "$CLUSTER_ARN" | sed 's#:cluster/#:topic/#')/*"
+              GROUP_ARN="$(echo "$CLUSTER_ARN" | sed 's#:cluster/#:group/#')/*"
+
+              POLICY=$(printf '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["kafka-cluster:Connect","kafka-cluster:DescribeCluster","kafka-cluster:DescribeClusterDynamicConfiguration","kafka-cluster:AlterCluster"],"Resource":"%s"},{"Effect":"Allow","Action":["kafka-cluster:CreateTopic","kafka-cluster:DescribeTopic","kafka-cluster:DescribeTopicDynamicConfiguration","kafka-cluster:WriteData","kafka-cluster:ReadData"],"Resource":"%s"},{"Effect":"Allow","Action":["kafka-cluster:AlterGroup","kafka-cluster:DescribeGroup"],"Resource":"%s"}]}' "$CLUSTER_ARN" "$TOPIC_ARN" "$GROUP_ARN")
+
+              echo "Re-attaching kafka-access to $PREFIX-kafka-app"
+              aws iam put-role-policy --role-name "$PREFIX-kafka-app" \
+                --policy-name kafka-access --policy-document "$POLICY"
+
+              INSTANCE_ID=$(aws ec2 describe-instances \
+                --filters "Name=tag:Name,Values=$PREFIX-kafka-app" "Name=instance-state-name,Values=running" \
+                --query 'Reservations[0].Instances[0].InstanceId' --output text)
+              aws ssm send-command --instance-ids "$INSTANCE_ID" \
+                --document-name AWS-RunShellScript \
+                --parameters 'commands=["systemctl restart kafka-demo-consumer"]'

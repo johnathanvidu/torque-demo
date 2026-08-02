@@ -1,0 +1,43 @@
+spec_version: 2
+description: 'Fix the "grain I/O wiring" break: reset the consumer-topic SSM parameter back to the wired value (orders) so the consumer re-subscribes to the topic the producer actually writes to.'
+
+workflow:
+  scope: env
+  labels-selector: kafka
+  triggers:
+    - type: manual
+  timeout: 10
+
+inputs:
+  agent:
+    type: agent
+  topic_name:
+    type: string
+    default: orders
+    description: The wired topic the consumer should be reading (matches the MSK grain output).
+
+grains:
+  restore_topic:
+    kind: shell
+    spec:
+      agent:
+        name: '{{ .inputs.agent }}'
+      env-vars:
+        - PREFIX: '{{ .bindings.inputs.prefix }}'
+        - AWS_DEFAULT_REGION: '{{ .bindings.inputs.region }}'
+        - TOPIC: '{{ .inputs.topic_name }}'
+      activities:
+        deploy:
+          commands:
+            - |
+              set -euo pipefail
+              echo "Restoring /$PREFIX/consumer-topic -> $TOPIC"
+              aws ssm put-parameter --name "/$PREFIX/consumer-topic" --value "$TOPIC" --overwrite
+
+              # Nudge the consumer so recovery is immediate rather than on the next poll.
+              INSTANCE_ID=$(aws ec2 describe-instances \
+                --filters "Name=tag:Name,Values=$PREFIX-kafka-app" "Name=instance-state-name,Values=running" \
+                --query 'Reservations[0].Instances[0].InstanceId' --output text)
+              aws ssm send-command --instance-ids "$INSTANCE_ID" \
+                --document-name AWS-RunShellScript \
+                --parameters 'commands=["systemctl restart kafka-demo-consumer"]'

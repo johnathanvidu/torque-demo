@@ -1,0 +1,66 @@
+spec_version: 2
+description: 'Reset the Kafka demo to a clean, healthy state between takes: restore the broker firewall rule, the kafka-access policy, and the consumer topic, then roll the consumer.'
+
+workflow:
+  scope: env
+  labels-selector: kafka
+  triggers:
+    - type: manual
+  timeout: 10
+
+inputs:
+  agent:
+    type: agent
+  topic_name:
+    type: string
+    default: orders
+    description: The wired topic the consumer should be reading.
+
+grains:
+  reset_demo:
+    kind: shell
+    spec:
+      agent:
+        name: '{{ .inputs.agent }}'
+      env-vars:
+        - PREFIX: '{{ .bindings.inputs.prefix }}'
+        - AWS_DEFAULT_REGION: '{{ .bindings.inputs.region }}'
+        - TOPIC: '{{ .inputs.topic_name }}'
+      activities:
+        deploy:
+          commands:
+            - |
+              set -euo pipefail
+
+              echo "== 1/4 restore broker firewall rule =="
+              SG_ID=$(aws ec2 describe-security-groups \
+                --filters "Name=group-name,Values=$PREFIX-msk-brokers" \
+                --query 'SecurityGroups[0].GroupId' --output text)
+              VPC_ID=$(aws ec2 describe-security-groups --group-ids "$SG_ID" \
+                --query 'SecurityGroups[0].VpcId' --output text)
+              VPC_CIDR=$(aws ec2 describe-vpcs --vpc-ids "$VPC_ID" \
+                --query 'Vpcs[0].CidrBlock' --output text)
+              aws ec2 authorize-security-group-ingress --group-id "$SG_ID" \
+                --protocol tcp --port 9098 --cidr "$VPC_CIDR" 2>/dev/null \
+                || echo "ingress rule already present"
+
+              echo "== 2/4 restore kafka-access policy =="
+              CLUSTER_ARN=$(aws kafka list-clusters-v2 --cluster-name-filter "$PREFIX" \
+                --query 'ClusterInfoList[0].ClusterArn' --output text)
+              TOPIC_ARN="$(echo "$CLUSTER_ARN" | sed 's#:cluster/#:topic/#')/*"
+              GROUP_ARN="$(echo "$CLUSTER_ARN" | sed 's#:cluster/#:group/#')/*"
+              POLICY=$(printf '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["kafka-cluster:Connect","kafka-cluster:DescribeCluster","kafka-cluster:DescribeClusterDynamicConfiguration","kafka-cluster:AlterCluster"],"Resource":"%s"},{"Effect":"Allow","Action":["kafka-cluster:CreateTopic","kafka-cluster:DescribeTopic","kafka-cluster:DescribeTopicDynamicConfiguration","kafka-cluster:WriteData","kafka-cluster:ReadData"],"Resource":"%s"},{"Effect":"Allow","Action":["kafka-cluster:AlterGroup","kafka-cluster:DescribeGroup"],"Resource":"%s"}]}' "$CLUSTER_ARN" "$TOPIC_ARN" "$GROUP_ARN")
+              aws iam put-role-policy --role-name "$PREFIX-kafka-app" \
+                --policy-name kafka-access --policy-document "$POLICY"
+
+              echo "== 3/4 restore consumer topic =="
+              aws ssm put-parameter --name "/$PREFIX/consumer-topic" --value "$TOPIC" --overwrite
+
+              echo "== 4/4 roll the consumer =="
+              INSTANCE_ID=$(aws ec2 describe-instances \
+                --filters "Name=tag:Name,Values=$PREFIX-kafka-app" "Name=instance-state-name,Values=running" \
+                --query 'Reservations[0].Instances[0].InstanceId' --output text)
+              aws ssm send-command --instance-ids "$INSTANCE_ID" \
+                --document-name AWS-RunShellScript \
+                --parameters 'commands=["systemctl restart kafka-demo-consumer kafka-demo-producer"]'
+              echo "reset complete"
