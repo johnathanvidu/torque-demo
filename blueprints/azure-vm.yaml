@@ -37,6 +37,14 @@ inputs:
     type: string
     default: 0.0.0.0/0
     description: CIDR block allowed to reach the VM over SSH (port 22).
+  boot_sequence:
+    type: string
+    default: ''
+    description: 'Optional power-on order for this VM, applied as the bootSequence tag and read by the sequenced power on/off workflows. Lower numbers start first and shut down last. Leave empty to omit the tag.'
+  tags:
+    type: string
+    default: '{}'
+    description: 'Optional extra tags for every resource in this grain, as a JSON object, e.g. {"owner":"platform","costCenter":"1234"}. Use boot_sequence for the bootSequence tag rather than setting it here.'
 
 outputs:
   vm_id:
@@ -67,6 +75,8 @@ grains:
         - vm_size: '{{ .inputs.vm_size }}'
         - admin_username: '{{ .inputs.admin_username }}'
         - ssh_ingress_cidr: '{{ .inputs.ssh_ingress_cidr }}'
+        - boot_sequence: '{{ .inputs.boot_sequence }}'
+        - tags: '{{ .inputs.tags }}'
       outputs:
         - vm_id
         - vm_name

@@ -1,5 +1,11 @@
-# Applies the requested power state to every VM in a single bootSequence tier.
+# Applies the requested power state to every VM in a single bootSequence tier, then waits
+# for the tier to actually reach that state before returning.
 # Included once per tier, in order, by ansible/azure/vm-boot-sequence.yaml.
+#
+# The Authorization header is not hidden with no_log here, unlike the token request in the
+# parent playbook: seeing per-VM request/response detail is what makes a failed power
+# operation diagnosable, and the bearer token is short lived. The long-lived credential
+# (the federated assertion) never appears in these tasks.
 
 - name: "Select the VMs in tier {{ tier }}"
   ansible.builtin.set_fact:
@@ -9,38 +15,36 @@
   ansible.builtin.debug:
     msg: "{{ boot_sequence_tag }}={{ tier }}: {{ power_action }} {{ tier_vms | map(attribute='name') | join(', ') }}"
 
-- name: "Apply the power state to tier {{ tier }}"
-  block:
-    - name: Start the VMs in this tier
-      azure.azcollection.azure_rm_virtualmachine:
-        resource_group: "{{ item.resource_group }}"
-        name: "{{ item.name }}"
-        started: true
-      loop: "{{ tier_vms }}"
-      loop_control:
-        label: "{{ item.name }}"
-      when: power_action == 'start'
+# start allocates and boots. deallocate (rather than a plain stop) releases the compute,
+# so billing stops too - a stopped-but-allocated VM still bills.
+- name: "Request {{ power_action }} for the VMs in tier {{ tier }}"
+  ansible.builtin.uri:
+    url: "{{ arm_base }}{{ item.id }}/{{ 'start' if power_action == 'start' else 'deallocate' }}?api-version={{ arm_api_version }}"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ arm_token }}"
+    status_code: [200, 202]
+  loop: "{{ tier_vms }}"
+  loop_control:
+    label: "{{ item.name }}"
 
-    # allocated: no deallocates rather than just stopping, so compute billing stops too.
-    - name: Deallocate the VMs in this tier
-      azure.azcollection.azure_rm_virtualmachine:
-        resource_group: "{{ item.resource_group }}"
-        name: "{{ item.name }}"
-        allocated: false
-      loop: "{{ tier_vms }}"
-      loop_control:
-        label: "{{ item.name }}"
-      when: power_action == 'stop'
-
-  rescue:
-    # Same fallback the built-in Torque actions use: the module can trip over some VM
-    # shapes (e.g. VMs created outside azurerm defaults) where the CLI still succeeds.
-    - name: Retry this tier with the Azure CLI
-      ansible.builtin.command:
-        argv: "{{ ['az', 'vm', (power_action == 'start') | ternary('start', 'deallocate'), '--ids', item.id] }}"
-      loop: "{{ tier_vms }}"
-      loop_control:
-        label: "{{ item.name }}"
+# ARM returns 202 immediately, so the tier is not finished until instanceView agrees.
+# Without this wait the tier barrier would be meaningless - tier 2 would start while
+# tier 1 was still booting.
+- name: "Wait for tier {{ tier }} to reach {{ target_power_code }}"
+  ansible.builtin.uri:
+    url: "{{ arm_base }}{{ item.id }}/instanceView?api-version={{ arm_api_version }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ arm_token }}"
+    status_code: 200
+  loop: "{{ tier_vms }}"
+  loop_control:
+    label: "{{ item.name }}"
+  register: power_state
+  until: target_power_code in (power_state.json.statuses | default([]) | map(attribute='code') | list)
+  retries: "{{ power_wait_retries }}"
+  delay: "{{ power_wait_delay }}"
 
 - name: "Settle after tier {{ tier }}"
   ansible.builtin.pause:

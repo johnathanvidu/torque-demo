@@ -2,8 +2,13 @@
   hosts: localhost
   connection: local
   gather_facts: false
-  collections:
-    - azure.azcollection
+
+  # Deliberately no azure.azcollection and no az CLI. The Torque ansible runner image ships
+  # python3 + ansible but not the Azure CLI, and this agent authenticates with workload
+  # identity federation, so `az login` (the auth path the built-in torque-actions playbooks
+  # use) is not available. azcollection's own OIDC support (oidc_token_file_path) only
+  # arrived in 3.17.0, which the image may predate. Talking to ARM over REST with
+  # ansible.builtin.uri depends on nothing beyond core ansible.
 
   vars:
     # Overridden by the Torque grain inputs (extra-vars).
@@ -12,8 +17,21 @@
     default_sequence: 999         # tier used for VMs that carry no bootSequence tag
     tier_settle_seconds: 0        # pause between tiers, once a tier has finished
     reverse_order: false          # true -> highest tier first (normal for shutdown)
-    federated_login:
-      is_set: "{{ lookup('ansible.builtin.env', 'AZURE_FEDERATED_TOKEN_FILE', default=undefined) }}"
+
+    arm_api_version: "2024-07-01"
+    # Endpoints are variables so a sovereign cloud can be pointed elsewhere, and so the
+    # playbook can be run end to end against a stub in tests.
+    arm_base: https://management.azure.com
+    arm_scope: https://management.azure.com/.default
+    # Azure Workload Identity injects AZURE_AUTHORITY_HOST alongside the client id, tenant
+    # and token file, so honour it rather than assuming the commercial cloud. It normally
+    # carries a trailing slash, which would double up when the tenant is appended.
+    aad_base: >-
+      {{ (lookup('ansible.builtin.env', 'AZURE_AUTHORITY_HOST') | default('https://login.microsoftonline.com', true)) | regex_replace('/$', '') }}
+    # Power state reported by instanceView once the action has actually taken effect.
+    target_power_code: "{{ 'PowerState/running' if power_action == 'start' else 'PowerState/deallocated' }}"
+    power_wait_retries: 40
+    power_wait_delay: 15
 
   tasks:
     - name: Validate power_action
@@ -21,20 +39,96 @@
         msg: "power_action must be 'start' or 'stop', got '{{ power_action }}'."
       when: power_action not in ['start', 'stop']
 
-    # Mirrors the auth flow of the built-in QualiTorque/torque-actions Azure power actions.
-    - name: Az federated login
-      ansible.builtin.shell: az login --service-principal -u $AZURE_CLIENT_ID -t $AZURE_TENANT_ID --federated-token $(cat $AZURE_FEDERATED_TOKEN_FILE)
-      when: federated_login.is_set is defined
-      args:
-        executable: /bin/bash
+    # ---------------------------------------------------------------- authentication
+
+    - name: Collect the Azure credentials present in the runner
+      ansible.builtin.set_fact:
+        azure_client_id: "{{ lookup('ansible.builtin.env', 'AZURE_CLIENT_ID') }}"
+        azure_tenant_id: "{{ lookup('ansible.builtin.env', 'AZURE_TENANT_ID') | default(lookup('ansible.builtin.env', 'AZURE_TENANT'), true) }}"
+        azure_client_secret: "{{ lookup('ansible.builtin.env', 'AZURE_CLIENT_SECRET') | default(lookup('ansible.builtin.env', 'AZURE_SECRET'), true) }}"
+        azure_token_file: "{{ lookup('ansible.builtin.env', 'AZURE_FEDERATED_TOKEN_FILE') }}"
+        azure_token_inline: "{{ lookup('ansible.builtin.env', 'AZURE_FEDERATED_TOKEN') }}"
+      no_log: true
+
+    - name: Read the federated token from disk
+      ansible.builtin.set_fact:
+        client_assertion: "{{ lookup('ansible.builtin.file', azure_token_file) }}"
+      when: azure_token_file | length > 0
+      no_log: true
+
+    - name: Fall back to an inline federated token
+      ansible.builtin.set_fact:
+        client_assertion: "{{ azure_token_inline }}"
+      when:
+        - client_assertion is not defined
+        - azure_token_inline | length > 0
+      no_log: true
+
+    - name: Report which credentials were found
+      ansible.builtin.debug:
+        msg: >-
+          client_id {{ 'present' if azure_client_id | length > 0 else 'MISSING' }},
+          tenant {{ 'present' if azure_tenant_id | length > 0 else 'MISSING' }},
+          auth via {{ 'federated token' if (client_assertion | default('') | length > 0)
+                      else ('client secret' if azure_client_secret | length > 0 else 'NOTHING USABLE') }}
+
+    - name: Fail when the runner has no usable Azure credentials
+      ansible.builtin.fail:
+        msg: >-
+          No usable Azure credentials in the runner. Need AZURE_CLIENT_ID and
+          AZURE_TENANT_ID (or AZURE_TENANT), plus either AZURE_FEDERATED_TOKEN_FILE /
+          AZURE_FEDERATED_TOKEN or AZURE_CLIENT_SECRET / AZURE_SECRET.
+      when: >-
+        azure_client_id | length == 0
+        or azure_tenant_id | length == 0
+        or ((client_assertion | default('') | length == 0) and azure_client_secret | length == 0)
+
+    # no_log because the request body carries the federated assertion or the client
+    # secret, and the response carries the bearer token. The task below turns a failure
+    # back into a readable message using only AAD's safe error fields.
+    - name: Request an ARM access token
+      ansible.builtin.uri:
+        url: "{{ aad_base }}/{{ azure_tenant_id }}/oauth2/v2.0/token"
+        method: POST
+        body_format: form-urlencoded
+        body: "{{ token_request_body }}"
+        status_code: [200, 400, 401]
+      vars:
+        base_body:
+          client_id: "{{ azure_client_id }}"
+          scope: "{{ arm_scope }}"
+          grant_type: client_credentials
+        assertion_body:
+          client_assertion_type: urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+          client_assertion: "{{ client_assertion | default('') }}"
+        secret_body:
+          client_secret: "{{ azure_client_secret }}"
+        token_request_body: >-
+          {{ base_body | combine(assertion_body if (client_assertion | default('') | length > 0) else secret_body) }}
+      register: token_response
+      no_log: true
+
+    - name: Fail with the reason the token request was rejected
+      ansible.builtin.fail:
+        msg: >-
+          Could not obtain an ARM access token (HTTP {{ token_response.status | default('n/a') }}):
+          {{ token_response.json.error | default('unknown_error') }} -
+          {{ token_response.json.error_description | default('no description returned') | truncate(300) }}
+      when: (token_response.json.access_token | default('')) | length == 0
+
+    - name: Store the ARM token
+      ansible.builtin.set_fact:
+        arm_token: "{{ token_response.json.access_token }}"
+      no_log: true
+
+    # ---------------------------------------------------------------- discovery
 
     - name: Read the environment contract
       ansible.builtin.set_fact:
         contract: "{{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'CONTRACT_FILE_PATH')) | from_json }}"
 
-    # The contract lists every managed resource in the bounded environment. Azure VMs are
-    # picked out by their ARM id so this works for any grain that creates one. The tags
-    # attribute is carried along here and parsed below.
+    # Azure VMs are picked out by their ARM id, so this covers any grain that creates one.
+    # The tags attribute is carried along here and parsed below.
     - name: Collect the Azure VMs in this environment
       ansible.builtin.set_fact:
         vm_resources: "{{ (vm_resources | default([])) + [{'id': candidate, 'tags_raw': attributes.tags | default('', true)}] }}"
@@ -56,46 +150,41 @@
           introspection has completed.
       when: (vm_resources | default([]) | length) == 0
 
-    - name: Set the subscription
-      ansible.builtin.shell: az account set --subscription {{ vm_resources[0].id | regex_search('(?<=/subscriptions/)([a-fA-F0-9-]+)') }}
-      when: federated_login.is_set is defined
-      args:
-        executable: /bin/bash
-
     # Resource group and VM name come straight out of the ARM id, so no Azure call is
     # needed to identify a VM. The contract's tags attribute arrives as a JSON object -
     # already a mapping in some introspection payloads, a JSON string in others - so both
     # shapes are accepted. Anything else is treated as "no tags" and falls through to the
-    # cloud lookup rather than failing the run on a malformed value.
+    # REST lookup rather than failing the run on a malformed value.
     - name: Resolve identity and contract tags for each VM
       ansible.builtin.set_fact:
-        vms: "{{ (vms | default([])) + [{'id': item.id, 'resource_group': resource_group, 'name': name, 'tags': tags}] }}"
+        vms: "{{ (vms | default([])) + [{'id': item.id, 'resource_group': resource_group, 'name': name, 'tags': parsed_tags}] }}"
       vars:
         resource_group: "{{ item.id | regex_search('(?i)/resourceGroups/([^/]+)', '\\1') | first }}"
         name: "{{ item.id | regex_search('(?i)/virtualMachines/([^/]+)', '\\1') | first }}"
         tags_text: "{{ item.tags_raw | string | trim }}"
-        tags: "{{ item.tags_raw if (item.tags_raw is mapping) else (tags_text | from_json if tags_text.startswith('{') else {}) }}"
+        parsed_tags: "{{ item.tags_raw if (item.tags_raw is mapping) else (tags_text | from_json if tags_text.startswith('{') else {}) }}"
       loop: "{{ vm_resources | unique(attribute='id') }}"
       loop_control:
         label: "{{ item.id }}"
 
     # Only for VMs the contract had no tags for. rejectattr with no test keeps the falsy
     # (empty) tag sets.
-    - name: Fetch tags from Azure for VMs with no tags in the contract
-      azure.azcollection.azure_rm_virtualmachine_info:
-        resource_group: "{{ item.resource_group }}"
-        name: "{{ item.name }}"
+    - name: Read tags from Azure for VMs with no tags in the contract
+      ansible.builtin.uri:
+        url: "{{ arm_base }}{{ item.id }}?api-version={{ arm_api_version }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ arm_token }}"
+        status_code: 200
       loop: "{{ vms | rejectattr('tags') | list }}"
       loop_control:
         label: "{{ item.name }}"
-      register: vm_info
+      register: vm_get
 
     - name: Index the tags fetched from Azure by VM id
       ansible.builtin.set_fact:
-        fetched_tags: "{{ (fetched_tags | default({})) | combine({item.item.id: vm_tags}) }}"
-      vars:
-        vm_tags: "{{ (item.vms | default([], true) | first | default({}, true)).tags | default({}, true) }}"
-      loop: "{{ vm_info.results | default([]) }}"
+        fetched_tags: "{{ (fetched_tags | default({})) | combine({item.item.id: (item.json.tags | default({}, true))}) }}"
+      loop: "{{ vm_get.results | default([]) }}"
       loop_control:
         label: "{{ item.item.name }}"
 
@@ -103,8 +192,8 @@
       ansible.builtin.set_fact:
         sequenced_vms: "{{ (sequenced_vms | default([])) + [item | combine({'sequence': sequence | int, 'tag_source': tag_source})] }}"
       vars:
-        tags: "{{ item.tags if item.tags else (fetched_tags | default({}))[item.id] | default({}, true) }}"
-        sequence: "{{ tags[boot_sequence_tag] | default(default_sequence, true) }}"
+        effective_tags: "{{ item.tags if item.tags else (fetched_tags | default({}))[item.id] | default({}, true) }}"
+        sequence: "{{ effective_tags[boot_sequence_tag] | default(default_sequence, true) }}"
         tag_source: "{{ 'contract' if item.tags else 'azure' }}"
       loop: "{{ vms }}"
       loop_control:
@@ -131,6 +220,8 @@
           {{ sequenced_vms | selectattr('tag_source', 'equalto', 'contract') | list | length }},
           from Azure for
           {{ sequenced_vms | selectattr('tag_source', 'equalto', 'azure') | list | length }})
+
+    # ---------------------------------------------------------------- execution
 
     # include_tasks with a loop runs strictly sequentially, which is what makes the
     # tiers a real barrier: tier N finishes before tier N+1 is touched.
