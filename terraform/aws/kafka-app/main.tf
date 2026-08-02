@@ -1,5 +1,28 @@
-data "aws_ssm_parameter" "al2023" {
-  name = "/aws/service/ami-al2023/latest/al2023-ami-kernel-default-x86_64"
+# Resolve the AL2023 AMI via describe-images (not the /aws/ SSM public-parameter
+# namespace, which is commonly blocked by permission boundaries / SCPs).
+data "aws_ami" "al2023" {
+  most_recent = true
+  owners      = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-2023.*-kernel-6.1-x86_64"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+
+  filter {
+    name   = "virtualization-type"
+    values = ["hvm"]
+  }
+
+  filter {
+    name   = "state"
+    values = ["available"]
+  }
 }
 
 locals {
@@ -170,7 +193,7 @@ resource "aws_iam_instance_profile" "app" {
 
 # --- the app instance --------------------------------------------------------
 resource "aws_instance" "app" {
-  ami                         = data.aws_ssm_parameter.al2023.value
+  ami                         = data.aws_ami.al2023.id
   instance_type               = var.instance_type
   subnet_id                   = var.subnet_id
   vpc_security_group_ids      = [aws_security_group.app.id]
