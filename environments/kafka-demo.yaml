@@ -1,0 +1,74 @@
+spec_version: 2
+
+labels:
+  - AWS
+  - kafka
+
+environment:
+  environment_name: kafka-demo
+  owner_email: johnathan.v@quali.com
+  state: inactive
+  description: A managed-Kafka pipeline (MSK + producer/consumer + live dashboard) used to demo agentic troubleshooting of infra that suddenly breaks.
+
+inputs:
+  prefix:
+    type: string
+    default: kafka-demo
+    description: Prefix for all resources, so the break/reset scripts can find them.
+  region:
+    type: string
+    default: eu-west-1
+    description: AWS region for the app runtime configuration.
+
+grains:
+  vpc:
+    kind: blueprint
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/aws-vpc.yaml
+      inputs:
+        - agent: vido-vido-prod
+        - name: '{{ .inputs.prefix }}-vpc'
+        - cidr_block: 10.7.0.0/16
+      outputs:
+        - vpc_id
+        - vpc_cidr_block
+        - subnet_id
+
+  kafka:
+    kind: blueprint
+    depends-on: vpc
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/aws-msk.yaml
+      inputs:
+        - agent: vido-vido-prod
+        - name: '{{ .inputs.prefix }}'
+        - vpc_id: '{{ .grains.vpc.outputs.vpc_id }}'
+        - vpc_cidr_block: '{{ .grains.vpc.outputs.vpc_cidr_block }}'
+        - topic_name: orders
+      outputs:
+        - bootstrap_brokers
+        - cluster_arn
+        - topic_name
+
+  app:
+    kind: blueprint
+    depends-on: vpc, kafka
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/aws-kafka-app.yaml
+      inputs:
+        - agent: vido-vido-prod
+        - name: '{{ .inputs.prefix }}'
+        - region: '{{ .inputs.region }}'
+        - vpc_id: '{{ .grains.vpc.outputs.vpc_id }}'
+        - subnet_id: '{{ .grains.vpc.outputs.subnet_id }}'
+        - bootstrap_brokers: '{{ .grains.kafka.outputs.bootstrap_brokers }}'
+        - cluster_arn: '{{ .grains.kafka.outputs.cluster_arn }}'
+        - topic_name: '{{ .grains.kafka.outputs.topic_name }}'
+      outputs:
+        - dashboard_url
