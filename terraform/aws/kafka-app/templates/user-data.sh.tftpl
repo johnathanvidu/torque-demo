@@ -11,7 +11,8 @@ ${app_zip_b64}
 APPZIP
 unzip -o /tmp/kafka-demo-app.zip -d /opt/kafka-demo
 
-python3 -m pip install --upgrade pip
+# NB: do NOT `pip install --upgrade pip` here — on AL2023 pip is rpm-managed and
+# the self-upgrade fails, which (under `set -e`) would abort the whole bootstrap.
 python3 -m pip install -r /opt/kafka-demo/requirements.txt
 
 # --- runtime configuration ---------------------------------------------------
