@@ -2,7 +2,6 @@ spec_version: 2
 description: Provision an Amazon MSK (managed Kafka) cluster directly from the public terraform-aws-modules/msk-kafka-cluster/aws module, into a VPC created by the public terraform-aws-modules/vpc module.
 
 metadata:
-  self-service: true
   display-name: AWS MSK (Kafka) - Registry Module
   icon:
     path: icons/kafka.svg

@@ -2,7 +2,6 @@ spec_version: 2
 description: Deploy the Kafka demo app (producer, consumer, and a live dashboard) on an EC2 instance that connects to MSK over IAM.
 
 metadata:
-  self-service: true
   display-name: Kafka Demo App
   icon:
     path: icons/kafka.svg
