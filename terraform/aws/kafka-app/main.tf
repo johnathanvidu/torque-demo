@@ -126,9 +126,10 @@ resource "aws_iam_role_policy" "runtime" {
   })
 }
 
-# THE "revoked access" demo target. Kept as its own inline policy so a break
-# script can `aws iam delete-role-policy --policy-name kafka-access` and a Torque
-# redeploy (or the restore-access workflow) puts it back.
+# Baseline Kafka permission the app needs to produce/consume over IAM auth. Kept
+# as its own inline policy for clarity. (Note: MSK caches IAM authorization for
+# minutes, which is why the demo does NOT break access by toggling this policy —
+# Demo 2 stops the consumer workload instead, which is instant and deterministic.)
 resource "aws_iam_role_policy" "kafka_access" {
   name = "kafka-access"
   role = aws_iam_role.app.id

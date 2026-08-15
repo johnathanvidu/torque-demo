@@ -1,4 +1,5 @@
 spec_version: 2
+description: Deploy AWS MSK from scratch and the Kafka demo app (producer, consumer, and a live dashboard) on an EC2 instance that connects to MSK over IAM.
 
 labels:
   - AWS

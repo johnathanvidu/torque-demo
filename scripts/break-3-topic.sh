@@ -19,8 +19,8 @@ echo "== BREAK 3: drift the consumer topic (prefix=${PREFIX}, region=${AWS_DEFAU
 echo "  -> setting /${PREFIX}/consumer-topic = ${BAD_TOPIC} (producer still writes to 'orders')"
 aws ssm put-parameter --name "/${PREFIX}/consumer-topic" --value "$BAD_TOPIC" --overwrite >/dev/null
 
-# Immediate effect; without this the consumer picks up the change within ~5s anyway.
-restart_services kafka-demo-consumer
+# No restart needed: the consumer re-checks this parameter every ~5s and quietly
+# re-subscribes to the empty topic, so the counter simply freezes where it is.
 
 echo "Done. Watch the dashboard: $(dashboard_url)"
-echo "Symptom: consumer state stays 'Healthy/Stalled' with NO error, but the counter freezes."
+echo "Symptom: within ~5s the badge goes to 'Stalled' with NO error — the counter just freezes."

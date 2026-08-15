@@ -1,9 +1,12 @@
 """Dashboard: the single visible heartbeat of the demo.
 
 Serves one auto-refreshing page on :8080 showing the consumer's live message
-count, how long since the last message, and the consumer's current state. When a
-break lands, the count freezes and the state/age make the failure obvious to a
-room full of people watching one screen.
+count and, when something breaks, *why*. The three demos each surface a distinct
+badge + reason so a room can tell them apart at a glance:
+
+  * Firewall break   -> Broken:  "cannot reach brokers (firewall)"     (connection error)
+  * Workload down     -> Broken:  "consumer not reporting (process down)" (status went stale)
+  * Wiring break      -> Stalled: no error, counter simply frozen        (silent)
 """
 
 import time
@@ -14,6 +17,13 @@ from flask import Response
 import common
 
 app = Flask(__name__)
+
+# If the consumer is alive it rewrites the status file every ~2s. A staler file
+# than this means the consumer process itself is down.
+STALE_AFTER_S = 8
+# A healthy pipeline sees a message every few seconds; a longer gap while
+# "connected" with no error is the silent wiring break.
+STALL_AFTER_S = 12
 
 PAGE = """<!doctype html>
 <html lang="en">
@@ -42,12 +52,13 @@ PAGE = """<!doctype html>
     .bad .dot {{ background:#ff6b5a; box-shadow:0 0 10px #ff6b5a; }}
     .warn {{ background:rgba(241,196,15,.14); color:#ffe08a; }}
     .warn .dot {{ background:#ffd54a; box-shadow:0 0 10px #ffd54a; }}
-    table {{ width:100%; margin-top:26px; border-collapse:collapse; font-size:14px; }}
+    .reason {{ margin-top:14px; font-size:14px; color:#c3cdf0; }}
+    table {{ width:100%; margin-top:22px; border-collapse:collapse; font-size:14px; }}
     td {{ padding:9px 0; border-top:1px solid #232c49; }}
     td:first-child {{ color:#8ea0d0; }}
     td:last-child {{ text-align:right; font-variant-numeric:tabular-nums;
                      word-break:break-all; }}
-    .err {{ margin-top:18px; padding:12px 14px; border-radius:10px; font-size:13px;
+    .err {{ margin-top:16px; padding:12px 14px; border-radius:10px; font-size:13px;
             background:rgba(231,76,60,.1); color:#ff8a80; border:1px solid rgba(231,76,60,.3);
             white-space:pre-wrap; }}
   </style>
@@ -57,9 +68,9 @@ PAGE = """<!doctype html>
     <h1>Orders processed</h1>
     <div class="count">{count}</div>
     <div class="sub">{age}</div>
-    <span class="badge {cls}"><span class="dot"></span>{state_label}</span>
+    <span class="badge {cls}"><span class="dot"></span>{label}</span>
+    <div class="reason">{reason}</div>
     <table>
-      <tr><td>Consumer state</td><td>{state}</td></tr>
       <tr><td>Topic</td><td>{topic}</td></tr>
       <tr><td>Brokers</td><td>{brokers}</td></tr>
     </table>
@@ -69,39 +80,49 @@ PAGE = """<!doctype html>
 </html>
 """
 
-STATE_STYLE = {
-    "connected": ("ok", "Healthy"),
-    "starting": ("warn", "Starting"),
-    "error": ("bad", "Broken"),
-}
-
 
 def render():
     s = common.read_status()
+    now = time.time()
     count = s.get("count", 0)
     state = s.get("state", "unknown")
-    cls, label = STATE_STYLE.get(state, ("warn", "Unknown"))
-
+    updated_at = s.get("updated_at")
     last_ts = s.get("last_message_ts")
+    error = s.get("last_error")
+
+    # Defaults
+    cls, label, reason = "warn", "Starting", "Waiting for the consumer to report…"
+    error_block = ""
+
+    if updated_at and (now - updated_at) > STALE_AFTER_S:
+        # The consumer stopped writing its heartbeat — the process is down.
+        cls, label = "bad", "Broken"
+        reason = f"Consumer not reporting for {int(now - updated_at)}s — the consumer process is down."
+    elif state == "error":
+        cls, label = "bad", "Broken"
+        reason = "The consumer hit an error connecting to Kafka."
+        if error:
+            error_block = f'<div class="err">{error}</div>'
+    elif state == "connected":
+        if last_ts and (now - last_ts) > STALL_AFTER_S:
+            cls, label = "warn", "Stalled"
+            reason = "Connected and healthy, but no messages are arriving — is the consumer reading the same topic the producer writes?"
+        else:
+            cls, label = "ok", "Healthy"
+            reason = "Producer → Kafka → consumer flowing normally."
+
     if last_ts:
-        secs = int(time.time() - last_ts)
-        age = f"last message {secs}s ago" if secs else "last message just now"
-        # A healthy pipeline should see a message every few seconds. A long gap
-        # while "connected" is the tell-tale of the silent wiring break.
-        if state == "connected" and secs > 12:
-            cls, label = ("warn", "Stalled")
+        secs = int(now - last_ts)
+        age = "last message just now" if secs <= 1 else f"last message {secs}s ago"
     else:
         age = "no messages yet"
-
-    error = s.get("last_error")
-    error_block = f'<div class="err">{error}</div>' if error else ""
 
     return PAGE.format(
         count=count,
         age=age,
         cls=cls,
-        state_label=label,
-        state=state,
+        label=label,
+        reason=reason,
         topic=s.get("topic", "—"),
         brokers=s.get("brokers", "—"),
         error_block=error_block,

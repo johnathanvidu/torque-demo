@@ -7,12 +7,16 @@ produces a distinct, visible failure mode:
     the "wiring" demo (change the SSM value to orders-v2) makes the consumer
     silently re-subscribe to an empty topic. The counter freezes with NO error.
 
-  * Broker connectivity / IAM auth -> re-established on every (re)connect. The
-    "firewall" demo (revoke the SG rule) surfaces as connection timeouts; the
-    "revoked access" demo (detach the IAM policy) surfaces as auth errors. Both
-    freeze the counter WITH a clear error on the dashboard.
+  * Broker connectivity -> re-established on every (re)connect. The "firewall"
+    demo (revoke the SG rule) surfaces as a clear "cannot reach brokers" error,
+    distinguished from other failures by a quick TCP probe of the broker.
+
+The message count is persisted to the status file and reloaded on startup, so a
+restart (e.g. the day-2 roll in the workload-down demo) resumes the counter where
+it left off rather than snapping back to zero.
 """
 
+import socket
 import time
 
 import boto3
@@ -37,6 +41,26 @@ def current_topic(previous=None):
         return previous or common.PRODUCER_TOPIC
 
 
+def broker_reachable():
+    """Quick TCP probe of the first bootstrap broker, so we can tell a network /
+    firewall block apart from a broker-side failure. Returns (ok, host:port)."""
+    first = common.BROKERS.split(",")[0].strip()
+    host, _, port = first.partition(":")
+    port = int(port or "9098")
+    try:
+        with socket.create_connection((host, port), timeout=3):
+            return True, f"{host}:{port}"
+    except Exception:
+        return False, f"{host}:{port}"
+
+
+def classify_error(exc):
+    ok, endpoint = broker_reachable()
+    if not ok:
+        return f"Cannot reach brokers on the network — firewall/security group? ({endpoint})"
+    return f"Reached broker but the Kafka connection failed: {exc}"
+
+
 def publish(state, topic, error=None):
     common.write_status({
         "state": state,
@@ -50,6 +74,11 @@ def publish(state, topic, error=None):
 
 def main():
     global count, last_message_ts
+    # Resume the counter across restarts.
+    prev = common.read_status()
+    count = prev.get("count", 0) or 0
+    last_message_ts = prev.get("last_message_ts")
+
     topic = current_topic()
     publish("starting", topic)
 
@@ -89,7 +118,7 @@ def main():
                         topic = desired
                         break  # drop out to rebuild the consumer on the new topic
         except Exception as exc:  # noqa: BLE001
-            msg = str(exc)
+            msg = classify_error(exc)
             print(f"[consumer] ERROR: {msg}", flush=True)
             publish("error", topic, error=msg)
             time.sleep(5)
