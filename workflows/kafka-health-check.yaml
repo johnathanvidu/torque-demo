@@ -140,13 +140,10 @@ grains:
 
               HEALTH=$(output_of kafka_health)
               SUMMARY=$(output_of health_summary)
-              FAILING=$(output_of failing_check)
               COUNT=$(output_of messages_processed)
 
-              echo "== Kafka health: ${HEALTH:-unknown} (${FAILING:-?}), messages processed: ${COUNT:-?} =="
+              echo "== Kafka health: ${HEALTH:-unknown}, messages processed: ${COUNT:-?} =="
               [ -n "$SUMMARY" ] && echo "$SUMMARY"
 
-              # This workflow reports; it does not remediate. Fix with
-              # kafka-restart-consumer / kafka-restore-topic, or reconcile the
-              # environment for the firewall break.
+              # This workflow reports the pipeline's condition; it does not change it.
               exit 0

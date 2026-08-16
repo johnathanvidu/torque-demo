@@ -1,17 +1,14 @@
 #!/usr/bin/env bash
-# DEMO 1 — "The disappearing firewall rule" (drift).
-#
 # Revokes the broker security group's ingress rule, so the consumer can no longer
-# reach Kafka. The dashboard state flips to "Broken" with a connection-timeout
-# error and the counter freezes.
+# reach Kafka. The dashboard flips to "Broken" with a connection error and the
+# counter freezes.
 #
-# FIX (in the demo): the agent redeploys the environment; Torque reconciles the
-# drift and recreates the rule. (Or run scripts/reset-demo.sh / the reset workflow.)
+# Operator script — run from your laptop. See .docs/DEMO.md for how it is used.
 set -euo pipefail
 cd "$(dirname "$0")"
 source ./lib.sh
 
-echo "== BREAK 1: revoke broker firewall rule (prefix=${PREFIX}, region=${AWS_DEFAULT_REGION}) =="
+echo "== revoke broker ingress rule (prefix=${PREFIX}, region=${AWS_DEFAULT_REGION}) =="
 
 SG_ID="$(broker_sg_id)"
 [ "$SG_ID" != "None" ] || { echo "Could not find ${PREFIX}-msk-brokers security group." >&2; exit 1; }

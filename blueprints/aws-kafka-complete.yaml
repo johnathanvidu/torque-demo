@@ -15,7 +15,7 @@ inputs:
   prefix:
     type: string
     default: kafka-demo
-    description: Prefix for all resources, so the break/reset scripts can find them.
+    description: Name prefix applied to all resources in this environment.
   region:
     type: string
     default: eu-west-1
@@ -29,7 +29,7 @@ inputs:
     description: >-
       When true, an unhealthy pipeline fails the health_check grain and the environment
       goes "Active with Error". Off by default: a failed grain publishes no outputs, so
-      you would get the alarm but lose the diagnosis that says which of the three things broke.
+      you would get the alarm but lose the symptom description that comes with it.
 
 outputs:
   dashboard_url:
@@ -37,14 +37,15 @@ outputs:
     kind: link
   # The live verdict. Re-run the health_check grain (or the kafka-health-check
   # workflow) to refresh these without touching the infrastructure grains.
+  #
+  # Symptom only: these report that the pipeline has stopped and what that looks
+  # like from outside, not why.
   kafka_health:
     value: '{{ .grains.health_check.activities.deploy.commands.check.outputs.kafka_health }}'
     quick: true
   health_summary:
     value: '{{ .grains.health_check.activities.deploy.commands.check.outputs.health_summary }}'
     quick: true
-  failing_check:
-    value: '{{ .grains.health_check.activities.deploy.commands.check.outputs.failing_check }}'
   messages_processed:
     value: '{{ .grains.health_check.activities.deploy.commands.check.outputs.messages_processed }}'
 
@@ -103,8 +104,7 @@ grains:
         - instance_id
 
   # The pipeline's verdict, as environment state. Everything above proves the
-  # infrastructure exists; this proves data is actually flowing through it —
-  # which is the thing all three demos break while the infra stays green.
+  # infrastructure exists; this proves data is actually flowing through it.
   #
   # Safe to re-run on its own: it only reads (describe / get-parameter / a cat
   # over SSM), so re-running it costs nothing and mutates nothing. That is what
@@ -121,8 +121,7 @@ grains:
       env-vars:
         - PREFIX: '{{ .inputs.prefix }}'
         - AWS_DEFAULT_REGION: '{{ .inputs.region }}'
-        # Compared against the SSM parameter the consumer actually reads — the
-        # gap between these two is the silent wiring break.
+        # The topic the producer writes, wired straight from the MSK grain.
         - EXPECTED_TOPIC: '{{ .grains.kafka.outputs.topic_name }}'
         - VPC_CIDR: '{{ .grains.vpc.outputs.vpc_cidr_block }}'
         - INSTANCE_ID: '{{ .grains.app.outputs.instance_id }}'
@@ -136,5 +135,4 @@ grains:
               outputs:
                 - kafka_health
                 - health_summary
-                - failing_check
                 - messages_processed

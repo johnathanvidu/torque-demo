@@ -3,8 +3,7 @@
 The three processes all read their configuration from environment variables
 (populated by /etc/kafka-demo/config.env, written by the instance user-data) and
 authenticate to MSK using IAM — the EC2 instance role is signed into a short-lived
-OAUTHBEARER token on every (re)connection. That is what makes the "revoked access"
-demo work: detach the role's kafka policy and the very next reconnect is denied.
+OAUTHBEARER token on every (re)connection.
 """
 
 import json

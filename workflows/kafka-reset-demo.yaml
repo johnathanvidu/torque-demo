@@ -1,5 +1,5 @@
 spec_version: 2
-description: 'Reset the Kafka demo to a clean, healthy state between takes: restore the broker firewall rule and the consumer topic, then (re)start the consumer + producer.'
+description: 'Return the pipeline to a known-good baseline: broker ingress rule, consumer topic, and both services running.'
 
 workflow:
   scope: env

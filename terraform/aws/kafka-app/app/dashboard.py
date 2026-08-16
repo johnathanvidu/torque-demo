@@ -1,12 +1,15 @@
-"""Dashboard: the single visible heartbeat of the demo.
+"""Dashboard: the live view of whether the pipeline is moving.
 
-Serves one auto-refreshing page on :8080 showing the consumer's live message
-count and, when something breaks, *why*. The three demos each surface a distinct
-badge + reason so a room can tell them apart at a glance:
+Serves one auto-refreshing page on :8080 with the consumer's message count and a
+badge describing the pipeline's current condition. The badge is derived here, not
+reported by the consumer: the consumer writes only raw facts (a heartbeat, a
+count, a state, an optional error) and this module turns them into one of three
+conditions, each of which reads distinctly enough to tell apart from across a room:
 
-  * Firewall break   -> Broken:  "cannot reach brokers (firewall)"     (connection error)
-  * Workload down     -> Broken:  "consumer not reporting (process down)" (status went stale)
-  * Wiring break      -> Stalled: no error, counter simply frozen        (silent)
+  * heartbeat older than STALE_AFTER_S     -> the consumer process is not reporting
+  * consumer reported an error             -> its connection to Kafka is failing
+  * connected, no error, no message for
+    STALL_AFTER_S                          -> nothing is arriving
 """
 
 import time
@@ -22,7 +25,7 @@ app = Flask(__name__)
 # than this means the consumer process itself is down.
 STALE_AFTER_S = 8
 # A healthy pipeline sees a message every few seconds; a longer gap while
-# "connected" with no error is the silent wiring break.
+# "connected" with no error means traffic has stopped without anything erroring.
 STALL_AFTER_S = 12
 
 PAGE = """<!doctype html>
@@ -106,7 +109,7 @@ def render():
     elif state == "connected":
         if last_ts and (now - last_ts) > STALL_AFTER_S:
             cls, label = "warn", "Stalled"
-            reason = "Connected and healthy, but no messages are arriving — is the consumer reading the same topic the producer writes?"
+            reason = "Connected and healthy, with no error — but no messages are arriving."
         else:
             cls, label = "ok", "Healthy"
             reason = "Producer → Kafka → consumer flowing normally."

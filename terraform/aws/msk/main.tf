@@ -17,9 +17,8 @@ resource "aws_subnet" "brokers" {
 }
 
 # Security group for the brokers. The ingress rule that lets clients reach the
-# brokers is defined as a SEPARATE resource on purpose: the "firewall" demo
-# revokes exactly this rule out-of-band, and a Torque redeploy reconciles the
-# drift by recreating it.
+# brokers is a SEPARATE resource on purpose, so that Terraform owns it
+# independently and a redeploy restores it if it is changed out-of-band.
 resource "aws_security_group" "brokers" {
   name        = "${var.name}-msk-brokers"
   description = "MSK broker access for the ${var.name} demo"
@@ -51,9 +50,8 @@ resource "aws_msk_configuration" "this" {
   name           = "${var.name}-config"
   kafka_versions = [var.kafka_version]
 
-  # auto.create.topics lets the "orders-v2" topic in the wiring demo come into
-  # existence empty, so the consumer polls it silently (no error) — exactly the
-  # "silent stop" we want to demo.
+  # auto.create.topics means subscribing to an unknown topic creates it empty
+  # rather than erroring, so a consumer pointed at one polls it silently.
   server_properties = <<-PROPERTIES
     auto.create.topics.enable=true
     delete.topic.enable=true
@@ -81,7 +79,7 @@ resource "aws_msk_cluster" "this" {
   }
 
   # IAM authentication only — clients authenticate with their instance role, so
-  # the "revoked access" demo just detaches an IAM policy (no passwords to manage).
+  # there are no passwords to manage.
   client_authentication {
     sasl {
       iam = true

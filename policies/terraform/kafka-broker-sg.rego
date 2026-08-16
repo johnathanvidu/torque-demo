@@ -3,11 +3,10 @@ package torque.terraform_plan
 import future.keywords.in
 
 # Blocks any security-group INGRESS rule that exposes a protected port to the
-# open internet. In the demo this is the guardrail on the agent's fix: when the
-# agent re-applies Terraform to restore broker access, an over-broad rule
-# (0.0.0.0/0 on 9098) is denied, while the correct VPC-CIDR-scoped rule passes.
+# open internet. An over-broad rule (0.0.0.0/0 on 9098) is denied; a rule scoped
+# to the VPC CIDR passes.
 #
-# Configurable data (admin-set in Torque; sensible demo defaults below):
+# Configurable data (admin-set in Torque; defaults below):
 #   data.protected_ports  — list(number) of ports that must never be world-open. Default: [9098]
 #   data.forbidden_cidr   — the CIDR treated as "the whole internet".          Default: "0.0.0.0/0"
 

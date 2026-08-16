@@ -1,5 +1,5 @@
 spec_version: 2
-description: 'Fix the "grain I/O wiring" break: reset the consumer-topic SSM parameter back to the wired value (orders) so the consumer re-subscribes to the topic the producer actually writes to.'
+description: Set the consumer-topic SSM parameter to the wired topic value and roll the consumer so it re-subscribes.
 
 workflow:
   scope: env

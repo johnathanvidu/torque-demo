@@ -14,7 +14,7 @@ output "cluster_name" {
 }
 
 output "broker_security_group_id" {
-  description = "Security group protecting the brokers. The firewall demo revokes its ingress rule."
+  description = "Security group protecting the brokers."
   value       = aws_security_group.brokers.id
 }
 

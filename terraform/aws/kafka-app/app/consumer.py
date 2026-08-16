@@ -1,19 +1,17 @@
 """Consumer: reads the topic named in SSM and counts messages for the dashboard.
 
-Two configuration sources with different refresh semantics, chosen so each demo
-produces a distinct, visible failure mode:
+Two configuration sources, with deliberately different refresh semantics:
 
-  * Topic  -> read from SSM Parameter Store and re-checked every few seconds, so
-    the "wiring" demo (change the SSM value to orders-v2) makes the consumer
-    silently re-subscribe to an empty topic. The counter freezes with NO error.
+  * Topic -> read from SSM Parameter Store and re-checked every few seconds, so
+    the subscription can be repointed at runtime without restarting the process.
+    A change takes effect silently: the consumer re-subscribes, and if the new
+    topic has no producer it simply stops counting, raising no error.
 
-  * Broker connectivity -> re-established on every (re)connect. The "firewall"
-    demo (revoke the SG rule) surfaces as a clear "cannot reach brokers" error,
-    distinguished from other failures by a quick TCP probe of the broker.
+  * Broker connectivity -> re-established on every (re)connect. A network-level
+    block is told apart from a broker-side failure by a quick TCP probe.
 
 The message count is persisted to the status file and reloaded on startup, so a
-restart (e.g. the day-2 roll in the workload-down demo) resumes the counter where
-it left off rather than snapping back to zero.
+restart resumes the counter where it left off rather than snapping back to zero.
 """
 
 import socket
@@ -42,8 +40,8 @@ def current_topic(previous=None):
 
 
 def broker_reachable():
-    """Quick TCP probe of the first bootstrap broker, so we can tell a network /
-    firewall block apart from a broker-side failure. Returns (ok, host:port)."""
+    """Quick TCP probe of the first bootstrap broker, so a network-level block can
+    be told apart from a broker-side failure. Returns (ok, host:port)."""
     first = common.BROKERS.split(",")[0].strip()
     host, _, port = first.partition(":")
     port = int(port or "9098")
@@ -57,8 +55,8 @@ def broker_reachable():
 def classify_error(exc):
     ok, endpoint = broker_reachable()
     if not ok:
-        return f"Cannot reach brokers on the network — firewall/security group? ({endpoint})"
-    return f"Reached broker but the Kafka connection failed: {exc}"
+        return f"No network route to the brokers ({endpoint})."
+    return f"Reached the broker, but the Kafka connection failed: {exc}"
 
 
 def publish(state, topic, error=None):
@@ -106,8 +104,8 @@ def main():
                     publish("connected", topic)
 
                 # consumer_timeout_ms fires when idle: refresh status + re-check
-                # the wired topic. A change means the operator (or a break script)
-                # re-pointed us; re-subscribe cleanly.
+                # the wired topic. A change means we were re-pointed at runtime;
+                # re-subscribe cleanly.
                 publish("connected", topic)
                 now = time.time()
                 if now - last_topic_check > 5:

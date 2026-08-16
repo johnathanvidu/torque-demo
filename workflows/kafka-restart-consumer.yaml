@@ -1,5 +1,5 @@
 spec_version: 2
-description: Roll the Kafka demo consumer process (SSM restart of the systemd service). Utility used by the other remediations and on its own.
+description: Roll the Kafka consumer process (SSM restart of the systemd service).
 
 workflow:
   scope: env

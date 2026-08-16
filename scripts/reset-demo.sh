@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# Reset the Kafka demo to a clean, healthy state between takes.
+# Reset the pipeline to a clean, healthy state.
 #
-# Restores the broker firewall rule and the consumer topic, and makes sure the
-# consumer + producer are running. This is the CLI equivalent of the
-# kafka-reset-demo Torque workflow — use whichever is handier on stage.
+# Operator script — run from your laptop. CLI equivalent of the kafka-reset-demo
+# Torque workflow; use whichever is handier. See .docs/DEMO.md.
 set -euo pipefail
 cd "$(dirname "$0")"
 source ./lib.sh

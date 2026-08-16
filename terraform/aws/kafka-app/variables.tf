@@ -31,7 +31,7 @@ variable "cluster_arn" {
 }
 
 variable "topic_name" {
-  description = "Topic the producer writes to and the consumer starts on. Wired from the msk grain output — this is the grain-I/O value the wiring demo drifts."
+  description = "Topic the producer writes to and the consumer starts on. Wired from the msk grain output."
   type        = string
   default     = "orders"
 }

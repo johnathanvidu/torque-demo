@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
-# DEMO 2 — "The consumer workload goes down".
+# Stops the consumer service, as a crash / OOM / accidental stop would. The
+# infrastructure stays healthy — MSK is up, the instance is up, the producer keeps
+# writing — but the consumer stops reporting and the counter freezes.
 #
-# Stops the consumer service (as a crash / OOM / accidental stop would). The
-# infrastructure is all still healthy in Torque — MSK is up, the instance is up,
-# the producer keeps writing — but the data pipeline is dead: the consumer stops
-# reporting, so the dashboard flips to "Broken: consumer not reporting (process
-# down)" and the counter freezes.
-#
-# FIX (in the demo): the agent runs the kafka-restart-consumer day-2 workflow to
-# roll the workload. The counter resumes from where it froze.
+# Operator script — run from your laptop. See .docs/DEMO.md for how it is used.
 set -euo pipefail
 cd "$(dirname "$0")"
 source ./lib.sh
 
-echo "== BREAK 2: stop the consumer workload (prefix=${PREFIX}, region=${AWS_DEFAULT_REGION}) =="
+echo "== stop the consumer workload (prefix=${PREFIX}, region=${AWS_DEFAULT_REGION}) =="
 
 IID="$(instance_id)"
 [ "$IID" != "None" ] || { echo "Could not find ${PREFIX}-kafka-app instance." >&2; exit 1; }

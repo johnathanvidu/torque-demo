@@ -1,9 +1,8 @@
 """Producer: writes one order event per interval to the wired topic.
 
 The producer topic is fixed at boot from the blueprint-wired value (PRODUCER_TOPIC).
-It never reads the mutable SSM parameter — that is deliberately only the consumer's
-input, so the "grain I/O wiring" demo can drift the consumer's topic away from the
-producer's and create a silent mismatch.
+It never reads the mutable SSM parameter — that parameter is deliberately only the
+consumer's input, so the two sides can be repointed independently of each other.
 """
 
 import json

@@ -1,5 +1,5 @@
 output "dashboard_url" {
-  description = "Open this in a browser — the live message counter. Watch it freeze when a break lands."
+  description = "Open this in a browser — the live message counter."
   value       = "http://${aws_instance.app.public_ip}:8080"
 }
 
@@ -19,11 +19,11 @@ output "app_security_group_id" {
 }
 
 output "role_name" {
-  description = "Instance role name. The revoked-access demo deletes the 'kafka-access' inline policy from this role."
+  description = "Instance role name."
   value       = aws_iam_role.app.name
 }
 
 output "consumer_topic_param" {
-  description = "SSM parameter holding the consumer's topic. The wiring demo overwrites this."
+  description = "SSM parameter holding the topic the consumer subscribes to."
   value       = aws_ssm_parameter.consumer_topic.name
 }

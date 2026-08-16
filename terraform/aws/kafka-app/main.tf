@@ -47,8 +47,8 @@ data "archive_file" "app" {
 }
 
 # --- the mutable wiring value the consumer reads -----------------------------
-# Declared here (from the wired topic_name input) so a Torque redeploy reconciles
-# it. The "grain I/O wiring" demo overwrites this out-of-band to orders-v2.
+# Declared here from the wired topic_name input, so the value Terraform owns is
+# the source of truth and a redeploy restores it if it is changed out-of-band.
 resource "aws_ssm_parameter" "consumer_topic" {
   name  = "/${var.name}/consumer-topic"
   type  = "String"
@@ -127,9 +127,9 @@ resource "aws_iam_role_policy" "runtime" {
 }
 
 # Baseline Kafka permission the app needs to produce/consume over IAM auth. Kept
-# as its own inline policy for clarity. (Note: MSK caches IAM authorization for
-# minutes, which is why the demo does NOT break access by toggling this policy —
-# Demo 2 stops the consumer workload instead, which is instant and deterministic.)
+# as its own inline policy for clarity. Note that MSK caches IAM authorization for
+# minutes, so changes to this policy do not take effect promptly in either
+# direction — do not rely on it as a fast-acting switch.
 resource "aws_iam_role_policy" "kafka_access" {
   name = "kafka-access"
   role = aws_iam_role.app.id
