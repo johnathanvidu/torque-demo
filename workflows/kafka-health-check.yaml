@@ -21,10 +21,12 @@ inputs:
   agent:
     type: agent
     description: Torque agent that issues the API call. Needs outbound HTTPS to the Torque portal.
-  grain_name:
+  grain_path:
     type: string
     default: health_check
-    description: Grain to re-run. Must match the grain name in blueprints/aws-kafka-complete.yaml.
+    description: >-
+      Grain path to re-run, as the API's grains[].path. Top-level grains use their bare
+      name; grains nested inside a blueprint grain use parent.child (e.g. app.app).
   torque_url:
     type: string
     default: https://portal.qtorque.io
@@ -40,10 +42,10 @@ grains:
         - TORQUE_URL: '{{ .inputs.torque_url }}'
         - SPACE: '{{ spaceName }}'
         - ENV_ID: '{{ .bindings.environment_id }}'
-        - GRAIN: '{{ .inputs.grain_name }}'
+        - GRAIN: '{{ .inputs.grain_path }}'
         # Torque API token, read from the space's parameter store so it is never
         # in this file and never prompted for (a prompt would block the cron).
-        # Create it under Settings -> Parameters as `torque_api_token`.
+        # Lives under Settings -> Parameters as `TORQUE_TOKEN`.
         - TORQUE_TOKEN: '{{ .params.TORQUE_TOKEN }}'
       activities:
         deploy:
@@ -51,50 +53,97 @@ grains:
             - |
               set -euo pipefail
 
+              ENV_URL="$TORQUE_URL/api/spaces/$SPACE/environments/$ENV_ID"
+              AUTH="Authorization: Bearer $TORQUE_TOKEN"
+
               echo "== Re-running grain '$GRAIN' in $SPACE/$ENV_ID =="
 
-              # ── TODO: CONFIRM THIS CALL ────────────────────────────────────
-              # This is Torque's "Updates" feature — "triggering a restart of the
-              # grain (essentially redeploying it) without making any alterations"
+              # Preflight against the one endpoint that is confirmed. If this
+              # succeeds and the POST below does not, then the token, space and
+              # env id are all fine and the problem is purely the update path.
+              PRE=$(curl -sS -o /tmp/pre.json -w '%{http_code}' "$ENV_URL" -H "$AUTH")
+              if [ "$PRE" -ge 300 ]; then
+                echo "Cannot even read the environment (HTTP $PRE) — check the TORQUE_TOKEN parameter." >&2
+                cat /tmp/pre.json >&2 || true
+                exit 1
+              fi
+              echo "Auth OK (environment readable)."
+
+              # Torque's "Updates" feature — "triggering a restart of the grain
+              # (essentially redeploying it) without making any alterations"
               # (docs.qtorque.io/environment-services/drift-and-update).
               #
-              # The exact method/path/body is NOT in the public docs and the
-              # OpenAPI spec at $TORQUE_URL/api_reference is auth-gated, so the
-              # line below is unverified. Check it against your API reference and
-              # correct it if it differs — everything around it is correct.
+              # A grain entry carrying only `path` means exactly that: no new
+              # commit, no new inputs, just re-run it. The body supports far more
+              # (branch/commit_hash/tag, inputs, grains_to_add, grains_to_remove,
+              # force, ...) — all omitted deliberately, since any of them would
+              # turn this read-only refresh into a real change.
+              #
+              # Nothing in the blueprint depends on health_check, so Torque's
+              # rolling update has no dependents to cascade to: this re-runs the
+              # health check alone and leaves MSK and the app untouched.
+              UPDATE_URL="$ENV_URL/update_v2"
+              jq -n --arg grain "$GRAIN" '{grains: [{path: $grain}]}' > /tmp/payload.json
+
+              # Payload is built by jq rather than inline: \" escapes do not
+              # survive the YAML -> shell hop and collapse into invalid JSON.
+              echo "POST $UPDATE_URL"
+              echo "  payload: $(cat /tmp/payload.json)"
+
               HTTP_CODE=$(curl -sS -o /tmp/update.json -w '%{http_code}' \
-                -X POST "$TORQUE_URL/api/spaces/$SPACE/environments/$ENV_ID/updates" \
-                -H "Authorization: Bearer $TORQUE_TOKEN" \
+                -X POST "$UPDATE_URL" \
+                -H "$AUTH" \
                 -H 'Content-Type: application/json' \
-                -d "{\"grain_name\":\"$GRAIN\"}")
-              # ── END TODO ──────────────────────────────────────────────────
+                --data @/tmp/payload.json)
 
               if [ "$HTTP_CODE" -ge 300 ]; then
-                echo "Torque API returned HTTP $HTTP_CODE:" >&2
-                cat /tmp/update.json >&2
+                echo "Torque API returned HTTP $HTTP_CODE for POST $UPDATE_URL" >&2
+                echo "Response body:" >&2
+                cat /tmp/update.json >&2 || true
+                echo >&2
                 exit 1
               fi
               echo "Update accepted (HTTP $HTTP_CODE)."
 
-              # Poll the environment until the grain settles, then report the
-              # verdict it produced. Uses GET /api/spaces/{space}/environments/{id},
-              # which is the one endpoint here that is confirmed.
+              # Torque needs a moment to register the update. Without this the
+              # first poll can still observe the pre-update "Deployed"/"Active"
+              # state, break immediately, and report the PREVIOUS run's outputs
+              # as if they were fresh.
               echo "== Waiting for the grain to finish =="
-              for _ in $(seq 1 30); do
-                sleep 10
-                curl -sS -o /tmp/env.json \
-                  "$TORQUE_URL/api/spaces/$SPACE/environments/$ENV_ID" \
-                  -H "Authorization: Bearer $TORQUE_TOKEN"
+              sleep 20
 
-                STATE=$(jq -r '.details.state.current_state // "unknown"' /tmp/env.json)
-                echo "  environment state: $STATE"
-                case "$STATE" in Active | ActiveWithError | Ended | Terminating) break ;; esac
+              # Both shapes are accepted because the environment payload nests
+              # state differently across API versions; whichever matches wins.
+              env_state() { jq -r '.details.state.current_state // .computed_status // .status // "unknown"' /tmp/env.json; }
+              grain_state() {
+                jq -r --arg g "$GRAIN" \
+                  'first(((.details.state.grains // .grains // [])[] | select(.path == $g) | .state)) // "unknown"' \
+                  /tmp/env.json
+              }
+              output_of() {
+                jq -r --arg n "$1" \
+                  'first(((.details.state.outputs // .outputs // [])[] | select(.name == $n) | .value)) // empty' \
+                  /tmp/env.json
+              }
+
+              for _ in $(seq 1 30); do
+                curl -sS -o /tmp/env.json "$ENV_URL" -H "$AUTH"
+                STATE=$(env_state); GSTATE=$(grain_state)
+                echo "  environment=$STATE  grain=$GSTATE"
+                case "$STATE" in
+                  Active | ActiveWithError | Ended | Terminating)
+                    case "$GSTATE" in Deployed | Failed | Error | unknown) break ;; esac
+                    ;;
+                esac
+                sleep 10
               done
 
-              HEALTH=$(jq -r '.details.state.outputs[]? | select(.name=="kafka_health") | .value // empty' /tmp/env.json)
-              SUMMARY=$(jq -r '.details.state.outputs[]? | select(.name=="health_summary") | .value // empty' /tmp/env.json)
+              HEALTH=$(output_of kafka_health)
+              SUMMARY=$(output_of health_summary)
+              FAILING=$(output_of failing_check)
+              COUNT=$(output_of messages_processed)
 
-              echo "== Kafka health: ${HEALTH:-unknown} =="
+              echo "== Kafka health: ${HEALTH:-unknown} (${FAILING:-?}), messages processed: ${COUNT:-?} =="
               [ -n "$SUMMARY" ] && echo "$SUMMARY"
 
               # This workflow reports; it does not remediate. Fix with
