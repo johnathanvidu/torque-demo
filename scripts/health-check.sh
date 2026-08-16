@@ -34,6 +34,12 @@ STALE_AFTER_S=15
 # The producer writes every 3s. Connected + on-topic + no message for this long
 # is the silent wiring break.
 STALL_AFTER_S=30
+# Cold start. The app grain returns as soon as EC2 reports "running", but
+# user-data still has to install deps, unpack the app and write the systemd
+# units — a minute or two in which the consumer legitimately does not exist yet.
+# Overridable, because instance boot times vary.
+BOOT_GRACE_S="${BOOT_GRACE_S:-300}"
+BOOT_POLL_S="${BOOT_POLL_S:-15}"
 
 log() { echo "[health] $*"; }
 
@@ -76,12 +82,16 @@ last_error=""
 hb_age=-1
 msg_age=-1
 
-cmd_id="$(aws ssm send-command --instance-ids "$INSTANCE_ID" \
-  --document-name AWS-RunShellScript \
-  --parameters 'commands=["systemctl is-active kafka-demo-consumer || true","cat /var/lib/kafka-demo/status.json 2>/dev/null || echo {}"]' \
-  --query 'Command.CommandId' --output text 2>/dev/null)"
+probe_consumer() {
+  local cmd_id inv out json now
+  svc="unknown"; state="unknown"; count="unknown"; last_error=""; hb_age=-1; msg_age=-1
 
-if [ -n "$cmd_id" ] && [ "$cmd_id" != "None" ]; then
+  cmd_id="$(aws ssm send-command --instance-ids "$INSTANCE_ID" \
+    --document-name AWS-RunShellScript \
+    --parameters 'commands=["systemctl is-active kafka-demo-consumer || true","cat /var/lib/kafka-demo/status.json 2>/dev/null || echo {}"]' \
+    --query 'Command.CommandId' --output text 2>/dev/null)"
+  [ -n "$cmd_id" ] && [ "$cmd_id" != "None" ] || return 0
+
   for _ in $(seq 1 20); do
     sleep 2
     inv="$(aws ssm get-command-invocation --command-id "$cmd_id" \
@@ -101,6 +111,27 @@ if [ -n "$cmd_id" ] && [ "$cmd_id" != "None" ]; then
   last_error="$(printf '%s' "$json" | jq -r '.last_error // empty' 2>/dev/null)"
   hb_age="$(age_since "$now" "$(printf '%s' "$json" | jq -r '.updated_at // empty' 2>/dev/null)")"
   msg_age="$(age_since "$now" "$(printf '%s' "$json" | jq -r '.last_message_ts // empty' 2>/dev/null)")"
+}
+
+probe_consumer
+
+# Readiness gate. A consumer that has never carried a message might simply not
+# have booted yet, so wait for it rather than judging it — this is what makes the
+# grain safe to run at the end of the initial deployment.
+#
+# The wait is entered ONLY when no message has ever arrived. Demo 2 stops a
+# consumer that has already been running, so its status file survives with a real
+# last_message_ts and reports instantly, with no grace period. Same for Demo 3.
+# `fw_ok != unknown` proves the agent's AWS credentials work, so we are waiting on
+# the app, not on a permissions problem.
+if [ "$fw_ok" != "unknown" ] && [ "$msg_age" -lt 0 ] && [ "$state" != "error" ]; then
+  log "2/3 consumer process: no message processed yet — waiting up to ${BOOT_GRACE_S}s for the app to finish booting"
+  deadline=$(($(date +%s) + BOOT_GRACE_S))
+  while [ "$msg_age" -lt 0 ] && [ "$state" != "error" ] && [ "$(date +%s)" -lt "$deadline" ]; do
+    sleep "$BOOT_POLL_S"
+    probe_consumer
+    log "    systemd=${svc}, state=${state}, count=${count}, last message ${msg_age}s ago"
+  done
 fi
 log "2/3 consumer process: systemd=${svc}, state=${state}, count=${count}, heartbeat ${hb_age}s ago, last message ${msg_age}s ago"
 
@@ -120,7 +151,15 @@ elif [ "$fw_ok" = "no" ]; then
   failing="broker_firewall"
   summary="Broker security group ${sg_id} is missing tcp/${BROKER_PORT} ingress from ${VPC_CIDR}, so the consumer cannot reach MSK. The blueprint declares this rule — reconcile/redeploy the environment to put it back."
 
-elif [ "$svc" != "active" ] || { [ "$hb_age" -ge 0 ] && [ "$hb_age" -gt "$STALE_AFTER_S" ]; }; then
+elif [ "$hb_age" -lt 0 ]; then
+  # Never wrote a status file at all, even after the grace period — so it never
+  # came up, rather than having come up and died. Not one of the three demo
+  # breaks: the app failed to bootstrap.
+  health="BROKEN"
+  failing="consumer_never_started"
+  summary="The consumer never reported in ${BOOT_GRACE_S}s (systemd: ${svc}). This is a bootstrap failure, not a demo break — check /var/log/cloud-init-output.log on ${INSTANCE_ID}."
+
+elif [ "$svc" != "active" ] || [ "$hb_age" -gt "$STALE_AFTER_S" ]; then
   health="BROKEN"
   failing="consumer_process"
   summary="The consumer workload is down (systemd reports '${svc}', last heartbeat ${hb_age}s ago). Infrastructure is fine; only the pipeline is dead. Run the kafka-restart-consumer workflow."
@@ -135,7 +174,13 @@ elif [ "$state" = "error" ]; then
   failing="consumer_error"
   summary="The consumer is running but erroring against Kafka: ${last_error}"
 
-elif [ "$msg_age" -ge 0 ] && [ "$msg_age" -gt "$STALL_AFTER_S" ]; then
+elif [ "$msg_age" -lt 0 ]; then
+  # Heartbeating, on the right topic, no error — but nothing ever arrived.
+  health="STALLED"
+  failing="no_messages"
+  summary="The consumer is up and on the right topic but processed nothing in ${BOOT_GRACE_S}s — check kafka-demo-producer on ${INSTANCE_ID}."
+
+elif [ "$msg_age" -gt "$STALL_AFTER_S" ]; then
   health="STALLED"
   failing="no_messages"
   summary="Consumer is connected and on the right topic, but nothing has arrived for ${msg_age}s — check the producer."
