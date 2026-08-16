@@ -1,0 +1,103 @@
+spec_version: 2
+description: 'Re-run the environment''s health_check grain via the Torque API so the kafka_health / health_summary outputs reflect the pipeline right now. Read-only — it refreshes the verdict, it does not remediate.'
+
+workflow:
+  scope: env
+  labels-selector: kafka
+  triggers:
+    - type: manual
+    # Poll every 5 minutes so the environment's kafka_health output is never
+    # more than one interval stale — the environment page becomes the status
+    # board instead of the dashboard.
+    #
+    # Left commented out on purpose: until this runs manually and green a few
+    # times, a cron would just fail on a schedule. Uncomment to arm it.
+    # - type: cron
+    #   cron: '*/5 * * * *'
+    #   overridable: true
+  timeout: 10
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent that issues the API call. Needs outbound HTTPS to the Torque portal.
+  grain_name:
+    type: string
+    default: health_check
+    description: Grain to re-run. Must match the grain name in blueprints/aws-kafka-complete.yaml.
+  torque_url:
+    type: string
+    default: https://portal.qtorque.io
+    description: Torque portal base URL.
+
+grains:
+  refresh_health:
+    kind: shell
+    spec:
+      agent:
+        name: '{{ .inputs.agent }}'
+      env-vars:
+        - TORQUE_URL: '{{ .inputs.torque_url }}'
+        - SPACE: '{{ spaceName }}'
+        - ENV_ID: '{{ .bindings.environment_id }}'
+        - GRAIN: '{{ .inputs.grain_name }}'
+        # Torque API token, read from the space's parameter store so it is never
+        # in this file and never prompted for (a prompt would block the cron).
+        # Create it under Settings -> Parameters as `torque_api_token`.
+        - TORQUE_TOKEN: '{{ .params.TORQUE_TOKEN }}'
+      activities:
+        deploy:
+          commands:
+            - |
+              set -euo pipefail
+
+              echo "== Re-running grain '$GRAIN' in $SPACE/$ENV_ID =="
+
+              # ── TODO: CONFIRM THIS CALL ────────────────────────────────────
+              # This is Torque's "Updates" feature — "triggering a restart of the
+              # grain (essentially redeploying it) without making any alterations"
+              # (docs.qtorque.io/environment-services/drift-and-update).
+              #
+              # The exact method/path/body is NOT in the public docs and the
+              # OpenAPI spec at $TORQUE_URL/api_reference is auth-gated, so the
+              # line below is unverified. Check it against your API reference and
+              # correct it if it differs — everything around it is correct.
+              HTTP_CODE=$(curl -sS -o /tmp/update.json -w '%{http_code}' \
+                -X POST "$TORQUE_URL/api/spaces/$SPACE/environments/$ENV_ID/updates" \
+                -H "Authorization: Bearer $TORQUE_TOKEN" \
+                -H 'Content-Type: application/json' \
+                -d "{\"grain_name\":\"$GRAIN\"}")
+              # ── END TODO ──────────────────────────────────────────────────
+
+              if [ "$HTTP_CODE" -ge 300 ]; then
+                echo "Torque API returned HTTP $HTTP_CODE:" >&2
+                cat /tmp/update.json >&2
+                exit 1
+              fi
+              echo "Update accepted (HTTP $HTTP_CODE)."
+
+              # Poll the environment until the grain settles, then report the
+              # verdict it produced. Uses GET /api/spaces/{space}/environments/{id},
+              # which is the one endpoint here that is confirmed.
+              echo "== Waiting for the grain to finish =="
+              for _ in $(seq 1 30); do
+                sleep 10
+                curl -sS -o /tmp/env.json \
+                  "$TORQUE_URL/api/spaces/$SPACE/environments/$ENV_ID" \
+                  -H "Authorization: Bearer $TORQUE_TOKEN"
+
+                STATE=$(jq -r '.details.state.current_state // "unknown"' /tmp/env.json)
+                echo "  environment state: $STATE"
+                case "$STATE" in Active | ActiveWithError | Ended | Terminating) break ;; esac
+              done
+
+              HEALTH=$(jq -r '.details.state.outputs[]? | select(.name=="kafka_health") | .value // empty' /tmp/env.json)
+              SUMMARY=$(jq -r '.details.state.outputs[]? | select(.name=="health_summary") | .value // empty' /tmp/env.json)
+
+              echo "== Kafka health: ${HEALTH:-unknown} =="
+              [ -n "$SUMMARY" ] && echo "$SUMMARY"
+
+              # This workflow reports; it does not remediate. Fix with
+              # kafka-restart-consumer / kafka-restore-topic, or reconcile the
+              # environment for the firewall break.
+              exit 0

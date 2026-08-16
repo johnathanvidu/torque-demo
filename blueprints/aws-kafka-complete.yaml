@@ -20,6 +20,33 @@ inputs:
     type: string
     default: eu-west-1
     description: AWS region for the app runtime configuration.
+  fail_on_unhealthy:
+    type: string
+    default: 'false'
+    allowed-values:
+      - 'false'
+      - 'true'
+    description: >-
+      When true, an unhealthy pipeline fails the health_check grain and the environment
+      goes "Active with Error". Off by default: a failed grain publishes no outputs, so
+      you would get the alarm but lose the diagnosis that says which of the three things broke.
+
+outputs:
+  dashboard_url:
+    value: '{{ .grains.app.outputs.dashboard_url }}'
+    kind: link
+  # The live verdict. Re-run the health_check grain (or the kafka-health-check
+  # workflow) to refresh these without touching the infrastructure grains.
+  kafka_health:
+    value: '{{ .grains.health_check.activities.deploy.commands.check.outputs.kafka_health }}'
+    quick: true
+  health_summary:
+    value: '{{ .grains.health_check.activities.deploy.commands.check.outputs.health_summary }}'
+    quick: true
+  failing_check:
+    value: '{{ .grains.health_check.activities.deploy.commands.check.outputs.failing_check }}'
+  messages_processed:
+    value: '{{ .grains.health_check.activities.deploy.commands.check.outputs.messages_processed }}'
 
 grains:
   vpc:
@@ -73,3 +100,41 @@ grains:
         - topic_name: '{{ .grains.kafka.outputs.topic_name }}'
       outputs:
         - dashboard_url
+        - instance_id
+
+  # The pipeline's verdict, as environment state. Everything above proves the
+  # infrastructure exists; this proves data is actually flowing through it —
+  # which is the thing all three demos break while the infra stays green.
+  #
+  # Safe to re-run on its own: it only reads (describe / get-parameter / a cat
+  # over SSM), so re-running it costs nothing and mutates nothing. That is what
+  # the kafka-health-check workflow does on a schedule.
+  health_check:
+    kind: shell
+    depends-on: vpc, kafka, app
+    spec:
+      agent:
+        name: vido-vido-prod
+      files:
+        - source: torque-demo
+          path: scripts/health-check.sh
+      env-vars:
+        - PREFIX: '{{ .inputs.prefix }}'
+        - AWS_DEFAULT_REGION: '{{ .inputs.region }}'
+        # Compared against the SSM parameter the consumer actually reads — the
+        # gap between these two is the silent wiring break.
+        - EXPECTED_TOPIC: '{{ .grains.kafka.outputs.topic_name }}'
+        - VPC_CIDR: '{{ .grains.vpc.outputs.vpc_cidr_block }}'
+        - INSTANCE_ID: '{{ .grains.app.outputs.instance_id }}'
+        - FAIL_ON_UNHEALTHY: '{{ .inputs.fail_on_unhealthy }}'
+      activities:
+        deploy:
+          commands:
+            # Sourced, not executed, so the script's exports become grain outputs.
+            - name: check
+              command: source health-check.sh
+              outputs:
+                - kafka_health
+                - health_summary
+                - failing_check
+                - messages_processed
