@@ -13,7 +13,9 @@ inputs:
   name:
     type: string
     default: kafka
-    description: Name prefix for the VPC and MSK cluster.
+    description: >-
+      Base name for the VPC and MSK cluster. The environment id is appended to it, so the
+      same base name can be deployed many times side by side.
   region:
     type: string
     default: eu-west-1
@@ -74,7 +76,10 @@ grains:
         - AWS_REGION: '{{ .inputs.region }}'
         - AWS_DEFAULT_REGION: '{{ .inputs.region }}'
       inputs:
-        - name: '{{ .inputs.name }}-vpc'
+        # Environment id appended so concurrent deployments do not fight over
+        # account-scoped names. envId is stable for the life of an environment, so
+        # redeploying or updating never renames anything.
+        - name: '{{ .inputs.name }}-{{ envId | downcase }}-vpc'
         - cidr: '{{ .inputs.vpc_cidr }}'
         - azs: '{{ .inputs.azs }}'
         - private_subnets: '{{ .inputs.private_subnets }}'
@@ -96,7 +101,8 @@ grains:
         - AWS_REGION: '{{ .inputs.region }}'
         - AWS_DEFAULT_REGION: '{{ .inputs.region }}'
       inputs:
-        - name: '{{ .inputs.name }}'
+        # The cluster name is region-scoped — same reasoning as the VPC above.
+        - name: '{{ .inputs.name }}-{{ envId | downcase }}'
         - kafka_version: '{{ .inputs.kafka_version }}'
         - number_of_broker_nodes: '{{ .inputs.number_of_broker_nodes }}'
         - broker_node_instance_type: '{{ .inputs.broker_node_instance_type }}'

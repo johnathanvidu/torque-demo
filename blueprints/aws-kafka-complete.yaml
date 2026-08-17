@@ -15,7 +15,11 @@ inputs:
   prefix:
     type: string
     default: kafka-demo
-    description: Name prefix applied to all resources in this environment.
+    description: >-
+      Base name applied to all resources in this environment. Each grain appends the
+      environment id to it, so this blueprint can be launched many times concurrently
+      without the deployments colliding — see the resource_prefix output for the name
+      an individual environment actually used.
   region:
     type: string
     default: eu-west-1
@@ -36,6 +40,12 @@ outputs:
   dashboard_url:
     value: '{{ .grains.app.outputs.dashboard_url }}'
     kind: link
+  # The prefix this particular environment's AWS resources are named with
+  # (<prefix>-<environment id>). The string to search on in the console, and the
+  # value any ad-hoc script must be pointed at instead of a bare "kafka-demo".
+  resource_prefix:
+    value: '{{ .grains.app.outputs.name_prefix }}'
+    quick: true
   # The live verdict. Re-run the health_check grain (or the kafka-health-check
   # workflow) to refresh these without touching the infrastructure grains.
   #
@@ -83,6 +93,9 @@ grains:
         - bootstrap_brokers
         - cluster_arn
         - topic_name
+        # Handed to the health check so it probes this environment's broker SG by
+        # id, rather than looking one up by name across the whole account.
+        - broker_security_group_id
 
   app:
     kind: blueprint
@@ -101,8 +114,12 @@ grains:
         - cluster_arn: '{{ .grains.kafka.outputs.cluster_arn }}'
         - topic_name: '{{ .grains.kafka.outputs.topic_name }}'
       outputs:
+        - name_prefix
         - dashboard_url
         - instance_id
+        # Same reasoning as broker_security_group_id above: the health check reads the
+        # exact parameter this environment created, not a path it reassembled.
+        - consumer_topic_param
 
   # The pipeline's verdict, as environment state. Everything above proves the
   # infrastructure exists; this proves data is actually flowing through it.
@@ -120,8 +137,12 @@ grains:
         - source: torque-demo
           path: scripts/health-check.sh
       env-vars:
-        - PREFIX: '{{ .inputs.prefix }}'
         - AWS_DEFAULT_REGION: '{{ .inputs.region }}'
+        # Every subject of the check is identified by a value this environment
+        # produced, never by a name rebuilt from the prefix — so several of these
+        # environments can run side by side and each health check still reads its own.
+        - BROKER_SG_ID: '{{ .grains.kafka.outputs.broker_security_group_id }}'
+        - TOPIC_PARAM: '{{ .grains.app.outputs.consumer_topic_param }}'
         # The topic the producer writes, wired straight from the MSK grain.
         - EXPECTED_TOPIC: '{{ .grains.kafka.outputs.topic_name }}'
         - VPC_CIDR: '{{ .grains.vpc.outputs.vpc_cidr_block }}'

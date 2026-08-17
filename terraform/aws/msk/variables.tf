@@ -1,5 +1,5 @@
 variable "name" {
-  description = "Name prefix for the MSK cluster and its resources. Also used as the tag prefix the demo break/reset scripts search on."
+  description = "Name prefix for the MSK cluster and its resources, and the cluster name itself. Account/region-scoped names derive from it, so pass a value unique per deployment — the blueprint appends the Torque environment id."
   type        = string
   default     = "kafka-demo"
 }

@@ -13,7 +13,10 @@ inputs:
   name:
     type: string
     default: kafka-demo
-    description: Name prefix for the app resources (break/reset scripts locate resources by this prefix).
+    description: >-
+      Base name for the app resources. The environment id is appended to it, so the same
+      base name can be deployed many times side by side. Pass the same value here as to
+      the MSK grain to keep both halves of one environment consistently named.
   region:
     type: string
     default: eu-west-1
@@ -44,6 +47,11 @@ inputs:
     description: CIDR blocks allowed to reach the dashboard on port 8080, as an HCL list.
 
 outputs:
+  # The resolved, environment-unique prefix every resource in this grain is named
+  # after — the string to search on in the AWS console to find just this
+  # environment's resources.
+  name_prefix:
+    value: '{{ .grains.app.outputs.name_prefix }}'
   dashboard_url:
     value: '{{ .grains.app.outputs.dashboard_url }}'
     kind: link
@@ -68,7 +76,11 @@ grains:
       agent:
         name: '{{ .inputs.agent }}'
       inputs:
-        - name: '{{ .inputs.name }}'
+        # Same rule as the MSK grain: the instance role, the instance profile and the
+        # consumer-topic SSM parameter are all account-scoped names derived from this
+        # value, so the environment id is appended. envId is stable for the life of an
+        # environment, so redeploying or updating never renames anything.
+        - name: '{{ .inputs.name }}-{{ envId | downcase }}'
         - region: '{{ .inputs.region }}'
         - vpc_id: '{{ .inputs.vpc_id }}'
         - subnet_id: '{{ .inputs.subnet_id }}'
@@ -78,6 +90,7 @@ grains:
         - instance_type: '{{ .inputs.instance_type }}'
         - dashboard_ingress_cidrs: '{{ .inputs.dashboard_ingress_cidrs }}'
       outputs:
+        - name_prefix
         - dashboard_url
         - instance_id
         - public_ip

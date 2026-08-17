@@ -31,8 +31,13 @@
 # grain's shell before anything is exported. Every probe is individually guarded
 # instead, and an unreachable probe degrades to UNKNOWN rather than a crash.
 #
-# In:  PREFIX, AWS_DEFAULT_REGION, EXPECTED_TOPIC, VPC_CIDR, INSTANCE_ID,
-#      FAIL_ON_UNHEALTHY, HEALTH_DEBUG
+# Every subject of the check is identified by a value the environment produced —
+# the broker security group by id, the topic parameter by its full name — rather
+# than by a name rebuilt from a shared prefix. That is what lets several of these
+# environments run at once without a health check reading another one's resources.
+#
+# In:  AWS_DEFAULT_REGION, BROKER_SG_ID, TOPIC_PARAM, EXPECTED_TOPIC, VPC_CIDR,
+#      INSTANCE_ID, FAIL_ON_UNHEALTHY, HEALTH_DEBUG
 # Out: kafka_health, health_summary, messages_processed
 set -u
 
@@ -84,9 +89,8 @@ symptom() {
 }
 
 # --- 1. broker firewall ------------------------------------------------------
-sg_id="$(aws ec2 describe-security-groups \
-  --filters "Name=group-name,Values=${PREFIX}-msk-brokers" \
-  --query 'SecurityGroups[0].GroupId' --output text 2>/dev/null)"
+# Wired in by id from the MSK grain's output.
+sg_id="$BROKER_SG_ID"
 
 fw_ok="unknown"
 if [ -n "$sg_id" ] && [ "$sg_id" != "None" ]; then
@@ -164,7 +168,7 @@ fi
 dbg "2/3 consumer process: systemd=${svc}, state=${state}, count=${count}, heartbeat ${hb_age}s ago, last message ${msg_age}s ago"
 
 # --- 3. topic wiring ---------------------------------------------------------
-actual_topic="$(aws ssm get-parameter --name "/${PREFIX}/consumer-topic" \
+actual_topic="$(aws ssm get-parameter --name "$TOPIC_PARAM" \
   --query 'Parameter.Value' --output text 2>/dev/null)"
 dbg "3/3 topic wiring: consumer reads '${actual_topic:-?}', producer writes '${EXPECTED_TOPIC}'"
 

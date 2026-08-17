@@ -14,7 +14,9 @@ inputs:
   name:
     type: string
     default: kafka-demo
-    description: Name prefix for the MSK cluster and its resources.
+    description: >-
+      Base name for the MSK cluster and its resources. The environment id is appended to
+      it, so the same base name can be deployed many times side by side.
   vpc_id:
     type: string
     description: VPC in which to place the broker subnets and security group.
@@ -35,6 +37,11 @@ inputs:
     description: Topic the producer writes to and the consumer reads from. Surfaced as an output to wire into the app.
 
 outputs:
+  # The resolved, environment-unique prefix every resource in this grain is named
+  # after. Equal to the cluster name; surfaced under both names because callers
+  # wire it as a prefix, not as a cluster.
+  name_prefix:
+    value: '{{ .grains.msk.outputs.cluster_name }}'
   bootstrap_brokers:
     value: '{{ .grains.msk.outputs.bootstrap_brokers }}'
   cluster_arn:
@@ -56,7 +63,11 @@ grains:
       agent:
         name: '{{ .inputs.agent }}'
       inputs:
-        - name: '{{ .inputs.name }}'
+        # Everything this module names is account/region-scoped — the cluster, the
+        # MSK configuration, the broker security group — so the environment id is
+        # appended to make each deployment's names its own. envId is stable for the
+        # life of an environment, so redeploying or updating never renames anything.
+        - name: '{{ .inputs.name }}-{{ envId | downcase }}'
         - vpc_id: '{{ .inputs.vpc_id }}'
         - vpc_cidr_block: '{{ .inputs.vpc_cidr_block }}'
         - kafka_version: '{{ .inputs.kafka_version }}'

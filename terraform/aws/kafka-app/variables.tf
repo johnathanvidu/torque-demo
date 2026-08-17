@@ -1,5 +1,5 @@
 variable "name" {
-  description = "Name prefix for the app resources. Break/reset scripts locate resources by this prefix (e.g. <name>-kafka-app instance, <name>-kafka-access role policy)."
+  description = "Name prefix for the app resources (e.g. <name>-kafka-app instance and role, /<name>/consumer-topic parameter). Account-scoped names derive from it, so pass a value unique per deployment — the blueprint appends the Torque environment id."
   type        = string
   default     = "kafka-demo"
 }

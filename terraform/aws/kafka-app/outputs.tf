@@ -1,3 +1,8 @@
+output "name_prefix" {
+  description = "The prefix every resource here is named after. Callers append an environment-unique suffix to var.name, so this is the string that identifies one deployment's resources."
+  value       = var.name
+}
+
 output "dashboard_url" {
   description = "Open this in a browser — the live message counter."
   value       = "http://${aws_instance.app.public_ip}:8080"

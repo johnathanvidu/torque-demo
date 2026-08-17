@@ -14,11 +14,24 @@ inputs:
   prefix:
     type: string
     default: kafka-demo
-    description: Prefix for all resources, so the break/reset scripts can find them.
+    description: >-
+      Base name for all resources. Each grain appends the environment id to it, so this
+      environment's resources never collide with a catalog launch of aws-kafka-complete
+      using the same base name. See the resource_prefix output for the resolved value.
   region:
     type: string
     default: eu-west-1
     description: AWS region for the app runtime configuration.
+
+outputs:
+  dashboard_url:
+    value: '{{ .grains.app.outputs.dashboard_url }}'
+    kind: link
+  # The prefix this environment's AWS resources are actually named with
+  # (<prefix>-<environment id>) — the string to search on in the console.
+  resource_prefix:
+    value: '{{ .grains.app.outputs.name_prefix }}'
+    quick: true
 
 grains:
   vpc:
@@ -71,4 +84,5 @@ grains:
         - cluster_arn: '{{ .grains.kafka.outputs.cluster_arn }}'
         - topic_name: '{{ .grains.kafka.outputs.topic_name }}'
       outputs:
+        - name_prefix
         - dashboard_url
