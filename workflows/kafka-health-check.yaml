@@ -69,6 +69,53 @@ grains:
               fi
               echo "Auth OK (environment readable)."
 
+              # ---- readers over the environment payload -------------------
+              # The payload nests things differently across API versions, and a
+              # grain's `state` is an OBJECT ({current_state, stages, ...}) on
+              # the v2 shape but a bare string on older ones. Every reader below
+              # therefore probes both shapes and normalises to lower case, so
+              # comparisons never hinge on "active" vs "Active With Error".
+              norm() { tr '[:upper:]' '[:lower:]' | tr -d ' _-'; }
+
+              grain_json() {
+                jq --arg g "$GRAIN" \
+                  'first(((.details.state.grains // .grains // [])[] | select(.path == $g))) // {}' \
+                  /tmp/env.json
+              }
+              # `state` as a string, whichever shape it arrived in.
+              grain_state() {
+                grain_json | jq -r '.state | if type == "object" then (.current_state // "unknown") else (. // "unknown") end'
+              }
+              # Fingerprint of the grain's last Deploy stage: count + id + start.
+              # A re-run appends a stage (count moves) or re-executes one in
+              # place (id/start moves) — either way this string changes, which is
+              # how a finished NEW run is told apart from the still-terminal
+              # state of the PREVIOUS one. Without it the first poll can observe
+              # the old "Deployed"/"DeployFailed" and report stale outputs.
+              grain_stages() {
+                grain_json | jq -r '
+                  (.state | if type == "object" then (.stages // []) else [] end) as $s
+                  | "\($s | length):\($s[-1].id // "-"):\($s[-1].execution.start // "-")"'
+              }
+              output_of() {
+                jq -r --arg n "$1" \
+                  '(.details.state.outputs // .outputs // []) as $o
+                   | if ($o | type) == "object" then ($o[$n] // empty)
+                     else (first($o[] | select(.name == $n) | .value) // empty) end' \
+                  /tmp/env.json
+              }
+
+              # Fingerprint the grain's last stage BEFORE the update, so the poll
+              # below can require a genuinely new run rather than trust a timer.
+              curl -sS -o /tmp/env.json "$ENV_URL" -H "$AUTH"
+              STAGES_BEFORE=$(grain_stages)
+              echo "Grain '$GRAIN' currently at state=$(grain_state), stage=$STAGES_BEFORE."
+
+              # A payload that reports `state` as a bare string carries no stages
+              # to fingerprint. There the terminal state alone has to do, so fall
+              # back to waiting long enough for the update to have taken hold.
+              case "$STAGES_BEFORE" in 0:*) HAVE_STAGES=no ;; *) HAVE_STAGES=yes ;; esac
+
               # Torque's "Updates" feature — "triggering a restart of the grain
               # (essentially redeploying it) without making any alterations"
               # (docs.qtorque.io/environment-services/drift-and-update).
@@ -105,45 +152,55 @@ grains:
               fi
               echo "Update accepted (HTTP $HTTP_CODE)."
 
-              # Torque needs a moment to register the update. Without this the
-              # first poll can still observe the pre-update "Deployed"/"Active"
-              # state, break immediately, and report the PREVIOUS run's outputs
-              # as if they were fresh.
+              # Give Torque a moment to register the update, then poll. The exit
+              # condition is "the grain's stage differs from the baseline AND has
+              # reached a terminal state" — the fingerprint rules out the previous
+              # run, so no timer has to be trusted for correctness.
               echo "== Waiting for the grain to finish =="
-              sleep 20
+              if [ "$HAVE_STAGES" = yes ]; then sleep 5; else sleep 20; fi
 
-              # Both shapes are accepted because the environment payload nests
-              # state differently across API versions; whichever matches wins.
-              env_state() { jq -r '.details.state.current_state // .computed_status // .status // "unknown"' /tmp/env.json; }
-              grain_state() {
-                jq -r --arg g "$GRAIN" \
-                  'first(((.details.state.grains // .grains // [])[] | select(.path == $g) | .state)) // "unknown"' \
-                  /tmp/env.json
-              }
-              output_of() {
-                jq -r --arg n "$1" \
-                  'first(((.details.state.outputs // .outputs // [])[] | select(.name == $n) | .value)) // empty' \
-                  /tmp/env.json
-              }
-
-              for _ in $(seq 1 30); do
+              DONE=no
+              for _ in $(seq 1 24); do
                 curl -sS -o /tmp/env.json "$ENV_URL" -H "$AUTH"
-                STATE=$(env_state); GSTATE=$(grain_state)
-                echo "  environment=$STATE  grain=$GSTATE"
-                case "$STATE" in
-                  Active | ActiveWithError | Ended | Terminating)
-                    case "$GSTATE" in Deployed | Failed | Error | unknown) break ;; esac
+                GSTATE=$(grain_state); STAGES=$(grain_stages)
+                echo "  grain=$GSTATE  stage=$STAGES (was $STAGES_BEFORE)"
+
+                # A grain that failed is a terminal, reportable outcome here:
+                # health_check exits non-zero when the pipeline is unhealthy, so
+                # DeployFailed is a verdict, not a workflow error.
+                case "$(printf '%s' "$GSTATE" | norm)" in
+                  deployed | *failed | *error | terminated | ended)
+                    if [ "$HAVE_STAGES" != yes ] || [ "$STAGES" != "$STAGES_BEFORE" ]; then
+                      DONE=yes; break
+                    fi
                     ;;
                 esac
                 sleep 10
               done
 
+              if [ "$DONE" != yes ]; then
+                echo "Grain '$GRAIN' did not report a finished re-run within the poll window;" >&2
+                echo "the outputs below may be from the previous evaluation." >&2
+              else
+                # Env-level outputs are republished just after the grain settles.
+                sleep 5
+                curl -sS -o /tmp/env.json "$ENV_URL" -H "$AUTH"
+              fi
+
+              GSTATE=$(grain_state)
               HEALTH=$(output_of kafka_health)
               SUMMARY=$(output_of health_summary)
               COUNT=$(output_of messages_processed)
 
               echo "== Kafka health: ${HEALTH:-unknown}, messages processed: ${COUNT:-?} =="
-              [ -n "$SUMMARY" ] && echo "$SUMMARY"
+              if [ -n "$SUMMARY" ]; then echo "$SUMMARY"; fi
+              case "$(printf '%s' "$GSTATE" | norm)" in
+                *failed | *error)
+                  echo "Health check grain ended in '$GSTATE' — the pipeline is failing its own"
+                  echo "assertions. See the grain's Deploy log for the assertion that tripped."
+                  ;;
+              esac
 
-              # This workflow reports the pipeline's condition; it does not change it.
+              # This workflow reports the pipeline's condition; it does not change
+              # it — a failing health check is a finding, not a workflow error.
               exit 0
