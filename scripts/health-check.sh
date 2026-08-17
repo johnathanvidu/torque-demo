@@ -222,10 +222,12 @@ export kafka_health="$health"
 export health_summary="$summary"
 export messages_processed="$count"
 
-# Opt-in: surface an unhealthy pipeline as a red grain (environment goes "Active
-# with Error") instead of a green grain carrying a BROKEN output. Off by default
-# because a failed grain does not publish its outputs — you get the alarm but
-# lose the symptom. Turn it on only if you want the environment itself to go red.
+# Surface an unhealthy pipeline as a red grain, so the environment goes "Active
+# with Error" instead of sitting green while carrying a BROKEN output.
+#
+# Note the outputs above are exported BEFORE this point deliberately: whether
+# Torque still harvests a failed command's outputs is not documented, so ordering
+# it this way gives them the best chance of being published either way.
 if [ "${FAIL_ON_UNHEALTHY:-false}" = "true" ] && [ "$health" != "HEALTHY" ]; then
   log "FAIL_ON_UNHEALTHY=true and health=${health} — failing the grain."
   return 1 2>/dev/null || exit 1

@@ -22,14 +22,15 @@ inputs:
     description: AWS region for the app runtime configuration.
   fail_on_unhealthy:
     type: string
-    default: 'false'
+    default: 'true'
     allowed-values:
-      - 'false'
       - 'true'
+      - 'false'
     description: >-
-      When true, an unhealthy pipeline fails the health_check grain and the environment
-      goes "Active with Error". Off by default: a failed grain publishes no outputs, so
-      you would get the alarm but lose the symptom description that comes with it.
+      When true, an unhealthy pipeline fails the health_check grain, so the environment
+      itself goes "Active with Error" rather than sitting green while carrying a BROKEN
+      output. Set to false to keep the environment Active and treat the outputs as the
+      only signal.
 
 outputs:
   dashboard_url:
