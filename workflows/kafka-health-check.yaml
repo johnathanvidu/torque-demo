@@ -21,16 +21,6 @@ inputs:
   agent:
     type: agent
     description: Torque agent that issues the API call. Needs outbound HTTPS to the Torque portal.
-  grain_path:
-    type: string
-    default: health_check
-    description: >-
-      Grain path to re-run, as the API's grains[].path. Top-level grains use their bare
-      name; grains nested inside a blueprint grain use parent.child (e.g. app.app).
-  torque_url:
-    type: string
-    default: https://portal.qtorque.io
-    description: Torque portal base URL.
 
 grains:
   refresh_health:
@@ -39,10 +29,10 @@ grains:
       agent:
         name: '{{ .inputs.agent }}'
       env-vars:
-        - TORQUE_URL: '{{ .inputs.torque_url }}'
+        - TORQUE_URL: 'https://portal.qtorque.io'
         - SPACE: '{{ spaceName }}'
         - ENV_ID: '{{ .bindings.environment_id }}'
-        - GRAIN: '{{ .inputs.grain_path }}'
+        - GRAIN: 'health_check'
         # Torque API token, read from the space's parameter store so it is never
         # in this file and never prompted for (a prompt would block the cron).
         # Lives under Settings -> Parameters as `TORQUE_TOKEN`.
