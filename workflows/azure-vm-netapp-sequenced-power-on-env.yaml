@@ -76,6 +76,7 @@ grains:
 
   power_on_by_sequence:
     kind: ansible
+    depends-on: check_idle
     when: '{{ .grains.check_idle.activities.deploy.commands.evaluate.outputs.should_power_on }}'
     spec:
       source:
