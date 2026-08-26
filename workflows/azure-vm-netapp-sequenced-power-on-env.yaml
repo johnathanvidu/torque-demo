@@ -46,6 +46,9 @@ outputs:
   vms_started:
     value: '{{ .grains.power_on_by_sequence.outputs.vms_processed }}'
     quick: true
+  netapp_cvos_started:
+    value: '{{ .grains.power_on_netapp_cvo.outputs.cvo_vms }}'
+    quick: true
 
 grains:                                                                                                                                                                                                                                                                                                                   
   check_idle:                                                                                                                                                                                                                                                                                                             
@@ -100,12 +103,26 @@ grains:
         - vms_processed
         - vm_count
 
+  # The built-in torque-actions netapp-cvo-azure-power-on-vm-tf action is env_resource
+  # scoped, so it cannot be sequenced against the VM grain inside one workflow. This
+  # playbook does the same thing env-wide, and is a no-op when the environment holds no
+  # netapp-cloudmanager_cvo_azure resources.
   power_on_netapp_cvo:
     kind: ansible
     depends-on: power_on_by_sequence
     spec:
-      built-in: true
       source:
-        path: https://github.com/QualiTorque/torque-actions.git//resource/netapp-cvo-azure-power-on-vm-tf.yaml
+        store: torque-demo
+        path: ansible/azure/netapp-cvo-power.yaml
       agent:
         name: '{{ .inputs.agent }}'
+      inputs:
+        - power_action: start
+      inventory-file:
+        localhost:
+          hosts:
+            127.0.0.1:
+              ansible_connection: local
+      outputs:
+        - cvo_vms
+        - cvo_count

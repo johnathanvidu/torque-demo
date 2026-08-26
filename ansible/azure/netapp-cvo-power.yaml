@@ -1,0 +1,186 @@
+- name: Power the Azure VMs behind the NetApp CVO resources in the environment
+  hosts: localhost
+  connection: local
+  gather_facts: false
+
+  # Replaces the built-in torque-actions resource actions
+  # netapp-cvo-azure-power-on-vm-tf.yaml / netapp-cvo-azure-deallocate-vm-tf.yaml, which are
+  # env_resource-scoped and so cannot be sequenced against other grains inside one workflow.
+  # This one is env-scoped: it finds every netapp-cloudmanager_cvo_azure resource in
+  # contract.json itself and powers all of them, so it can be ordered with depends-on
+  # alongside ansible/azure/vm-boot-sequence.yaml.
+  #
+  # A CVO on Azure is an Azure VM behind the curtains: the working environment named <name>
+  # is backed by a VM of the same name, and the resource's svm_name is svm_<name>. That is
+  # the mapping the built-in actions use, and the one used here.
+  #
+  # Like vm-boot-sequence.yaml this talks to ARM over REST rather than through
+  # azure.azcollection or the az CLI - see tasks/arm-token.yaml for why.
+  #
+  # An environment with no CVO resources is a normal, successful no-op.
+
+  vars:
+    # Overridden by the Torque grain inputs (extra-vars).
+    power_action: start           # start | stop
+    resource_type: netapp-cloudmanager_cvo_azure
+    # Only used for CVO entries whose contract attributes carry no subscription id.
+    subscription_id: ''
+
+    arm_api_version: "2024-07-01"
+    # Endpoints are variables so a sovereign cloud can be pointed elsewhere, and so the
+    # playbook can be run end to end against a stub in tests.
+    arm_base: https://management.azure.com
+    arm_scope: https://management.azure.com/.default
+    # Azure Workload Identity injects AZURE_AUTHORITY_HOST alongside the client id, tenant
+    # and token file, so honour it rather than assuming the commercial cloud. It normally
+    # carries a trailing slash, which would double up when the tenant is appended.
+    aad_base: >-
+      {{ (lookup('ansible.builtin.env', 'AZURE_AUTHORITY_HOST') | default('https://login.microsoftonline.com', true)) | regex_replace('/$', '') }}
+    # Power state reported by instanceView once the action has actually taken effect.
+    target_power_code: "{{ 'PowerState/running' if power_action == 'start' else 'PowerState/deallocated' }}"
+    power_wait_retries: 40
+    power_wait_delay: 15
+
+  tasks:
+    - name: Validate power_action
+      ansible.builtin.fail:
+        msg: "power_action must be 'start' or 'stop', got '{{ power_action }}'."
+      when: power_action not in ['start', 'stop']
+
+    # ---------------------------------------------------------------- discovery
+
+    - name: Read the environment contract
+      ansible.builtin.set_fact:
+        contract: "{{ lookup('ansible.builtin.file', lookup('ansible.builtin.env', 'CONTRACT_FILE_PATH')) | from_json }}"
+
+    # Two ways in, because the contract's shape varies with how the resource was introspected:
+    # a declared type field when there is one, and otherwise the Terraform address in
+    # `identifier`, which is netapp-cloudmanager_cvo_azure.<name> - or module.<x>.<that> when
+    # the grain wraps it in a module, hence a search rather than a prefix match.
+    - name: Collect the NetApp CVO resources in this environment
+      ansible.builtin.set_fact:
+        cvo_resources: "{{ (cvo_resources | default([])) + [item] }}"
+      vars:
+        declared_type: "{{ item.type | default(item.resource_type | default(item.kind | default('', true), true), true) }}"
+        identifier: "{{ item.identifier | default('', true) }}"
+        type_pattern: "{{ resource_type | regex_escape }}"
+      loop: "{{ contract.resources | default([]) }}"
+      loop_control:
+        label: "{{ item.identifier | default('unnamed resource', true) }}"
+      when: declared_type == resource_type or identifier is search(type_pattern)
+
+    # The whole point of the no-op path: an Azure environment that happens to have no CVO in
+    # it still runs this grain, and it must finish green. Outputs are exported before ending
+    # the play so the grain's declared outputs exist either way.
+    - name: Finish early when the environment has no NetApp CVO resources
+      when: (cvo_resources | default([]) | length) == 0
+      block:
+        - name: Report that there is nothing to do
+          ansible.builtin.debug:
+            msg: "No {{ resource_type }} resources in this environment - nothing to {{ power_action }}."
+
+        - name: Export empty outputs to Torque
+          torque.collections.export_torque_outputs:
+            outputs:
+              cvo_vms: ''
+              cvo_count: 0
+          delegate_to: localhost
+          run_once: true
+          ignore_errors: true   # allows standalone testing outside Torque
+
+        - name: End the play
+          ansible.builtin.meta: end_play
+
+    # The CVO name is the VM name; svm_name is svm_<name>. Both are read so an entry that
+    # carries only one of them still resolves. resource_group_name is accepted alongside
+    # resource_group because introspection payloads differ on which one they carry.
+    - name: Resolve the Azure VM behind each CVO
+      ansible.builtin.set_fact:
+        cvo_vms: >-
+          {{ (cvo_vms | default([])) + [{
+               'label': label,
+               'name': vm_name,
+               'resource_group': rg,
+               'subscription': sub,
+               'id': '/subscriptions/' ~ sub ~ '/resourceGroups/' ~ rg
+                     ~ '/providers/Microsoft.Compute/virtualMachines/' ~ vm_name,
+               'resolved': (vm_name | length > 0) and (rg | length > 0) and (sub | length > 0)
+             }] }}
+      vars:
+        attributes: "{{ item.attributes | default({}, true) }}"
+        svm_name: "{{ attributes.svm_name | default('', true) }}"
+        vm_name: "{{ (svm_name | regex_replace('^svm_', '')) if svm_name else attributes.name | default('', true) }}"
+        rg: "{{ attributes.resource_group | default(attributes.resource_group_name | default('', true), true) }}"
+        sub: "{{ attributes.subscription_id | default(subscription_id, true) }}"
+        label: "{{ item.identifier | default(vm_name, true) }}"
+      loop: "{{ cvo_resources }}"
+      loop_control:
+        label: "{{ item.identifier | default('unnamed resource', true) }}"
+
+    # A CVO that was found but cannot be addressed is an error, not something to skip: on
+    # shutdown, quietly passing over one leaves it running and billing.
+    - name: Fail when a CVO cannot be mapped to an Azure VM
+      ansible.builtin.fail:
+        msg: >-
+          Could not work out the Azure VM behind
+          {{ unresolved | map(attribute='label') | join(', ') }}. Each {{ resource_type }}
+          entry in contract.json needs svm_name (or name), resource_group and
+          subscription_id in its attributes. Pass subscription_id as a grain input if the
+          contract carries no subscription id.
+      vars:
+        unresolved: "{{ cvo_vms | rejectattr('resolved') | list }}"
+      when: (cvo_vms | rejectattr('resolved') | list | length) > 0
+
+    # ---------------------------------------------------------------- authentication
+
+    # After discovery, so an environment with no CVOs never needs Azure credentials at all.
+    - name: Obtain an ARM access token
+      ansible.builtin.include_tasks: tasks/arm-token.yaml
+
+    # ---------------------------------------------------------------- execution
+
+    - name: Show the plan
+      ansible.builtin.debug:
+        msg: >-
+          {{ power_action }} {{ cvo_vms | length }} CVO VM(s):
+          {{ cvo_vms | map(attribute='name') | join(', ') }}
+
+    # start allocates and boots. deallocate (rather than a plain stop) releases the compute,
+    # so billing stops too - a stopped-but-allocated VM still bills.
+    - name: "Request {{ power_action }} for the CVO VMs"
+      ansible.builtin.uri:
+        url: "{{ arm_base }}{{ item.id }}/{{ 'start' if power_action == 'start' else 'deallocate' }}?api-version={{ arm_api_version }}"
+        method: POST
+        headers:
+          Authorization: "Bearer {{ arm_token }}"
+        status_code: [200, 202]
+      loop: "{{ cvo_vms }}"
+      loop_control:
+        label: "{{ item.name }}"
+
+    # ARM returns 202 immediately, so the grain is not finished until instanceView agrees -
+    # which is what lets a depends-on downstream of this one assume the CVOs are really up
+    # (or really down) before it runs.
+    - name: "Wait for the CVO VMs to reach {{ target_power_code }}"
+      ansible.builtin.uri:
+        url: "{{ arm_base }}{{ item.id }}/instanceView?api-version={{ arm_api_version }}"
+        method: GET
+        headers:
+          Authorization: "Bearer {{ arm_token }}"
+        status_code: 200
+      loop: "{{ cvo_vms }}"
+      loop_control:
+        label: "{{ item.name }}"
+      register: power_state
+      until: target_power_code in (power_state.json.statuses | default([]) | map(attribute='code') | list)
+      retries: "{{ power_wait_retries }}"
+      delay: "{{ power_wait_delay }}"
+
+    - name: Export outputs to Torque
+      torque.collections.export_torque_outputs:
+        outputs:
+          cvo_vms: "{{ cvo_vms | map(attribute='name') | join(', ') }}"
+          cvo_count: "{{ cvo_vms | length }}"
+      delegate_to: localhost
+      run_once: true
+      ignore_errors: true   # allows standalone testing outside Torque

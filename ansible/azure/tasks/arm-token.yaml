@@ -1,0 +1,90 @@
+# Obtains an ARM bearer token from the credentials the Torque agent injects, and leaves it
+# in the `arm_token` fact. Included by the Azure power playbooks in this directory.
+#
+# Deliberately no azure.azcollection and no az CLI: the Torque ansible runner image ships
+# python3 + ansible but not the Azure CLI, and the agent authenticates with workload
+# identity federation, so `az login` (the auth path the built-in torque-actions playbooks
+# use) is not available. Talking to AAD over REST with ansible.builtin.uri depends on
+# nothing beyond core ansible.
+#
+# The including playbook is expected to define `arm_scope` and `aad_base`.
+
+- name: Collect the Azure credentials present in the runner
+  ansible.builtin.set_fact:
+    azure_client_id: "{{ lookup('ansible.builtin.env', 'AZURE_CLIENT_ID') }}"
+    azure_tenant_id: "{{ lookup('ansible.builtin.env', 'AZURE_TENANT_ID') | default(lookup('ansible.builtin.env', 'AZURE_TENANT'), true) }}"
+    azure_client_secret: "{{ lookup('ansible.builtin.env', 'AZURE_CLIENT_SECRET') | default(lookup('ansible.builtin.env', 'AZURE_SECRET'), true) }}"
+    azure_token_file: "{{ lookup('ansible.builtin.env', 'AZURE_FEDERATED_TOKEN_FILE') }}"
+    azure_token_inline: "{{ lookup('ansible.builtin.env', 'AZURE_FEDERATED_TOKEN') }}"
+  no_log: true
+
+- name: Read the federated token from disk
+  ansible.builtin.set_fact:
+    client_assertion: "{{ lookup('ansible.builtin.file', azure_token_file) }}"
+  when: azure_token_file | length > 0
+  no_log: true
+
+- name: Fall back to an inline federated token
+  ansible.builtin.set_fact:
+    client_assertion: "{{ azure_token_inline }}"
+  when:
+    - client_assertion is not defined
+    - azure_token_inline | length > 0
+  no_log: true
+
+- name: Report which credentials were found
+  ansible.builtin.debug:
+    msg: >-
+      client_id {{ 'present' if azure_client_id | length > 0 else 'MISSING' }},
+      tenant {{ 'present' if azure_tenant_id | length > 0 else 'MISSING' }},
+      auth via {{ 'federated token' if (client_assertion | default('') | length > 0)
+                  else ('client secret' if azure_client_secret | length > 0 else 'NOTHING USABLE') }}
+
+- name: Fail when the runner has no usable Azure credentials
+  ansible.builtin.fail:
+    msg: >-
+      No usable Azure credentials in the runner. Need AZURE_CLIENT_ID and
+      AZURE_TENANT_ID (or AZURE_TENANT), plus either AZURE_FEDERATED_TOKEN_FILE /
+      AZURE_FEDERATED_TOKEN or AZURE_CLIENT_SECRET / AZURE_SECRET.
+  when: >-
+    azure_client_id | length == 0
+    or azure_tenant_id | length == 0
+    or ((client_assertion | default('') | length == 0) and azure_client_secret | length == 0)
+
+# no_log because the request body carries the federated assertion or the client secret, and
+# the response carries the bearer token. The task below turns a failure back into a readable
+# message using only AAD's safe error fields.
+- name: Request an ARM access token
+  ansible.builtin.uri:
+    url: "{{ aad_base }}/{{ azure_tenant_id }}/oauth2/v2.0/token"
+    method: POST
+    body_format: form-urlencoded
+    body: "{{ token_request_body }}"
+    status_code: [200, 400, 401]
+  vars:
+    base_body:
+      client_id: "{{ azure_client_id }}"
+      scope: "{{ arm_scope }}"
+      grant_type: client_credentials
+    assertion_body:
+      client_assertion_type: urn:ietf:params:oauth:client-assertion-type:jwt-bearer
+      client_assertion: "{{ client_assertion | default('') }}"
+    secret_body:
+      client_secret: "{{ azure_client_secret }}"
+    token_request_body: >-
+      {{ base_body | combine(assertion_body if (client_assertion | default('') | length > 0) else secret_body) }}
+  register: token_response
+  no_log: true
+
+- name: Fail with the reason the token request was rejected
+  ansible.builtin.fail:
+    msg: >-
+      Could not obtain an ARM access token (HTTP {{ token_response.status | default('n/a') }}):
+      {{ token_response.json.error | default('unknown_error') }} -
+      {{ token_response.json.error_description | default('no description returned') | truncate(300) }}
+  when: (token_response.json.access_token | default('')) | length == 0
+
+- name: Store the ARM token
+  ansible.builtin.set_fact:
+    arm_token: "{{ token_response.json.access_token }}"
+  no_log: true

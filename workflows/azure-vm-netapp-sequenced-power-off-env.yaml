@@ -50,16 +50,33 @@ outputs:
   vms_stopped:
     value: '{{ .grains.power_off_by_sequence.outputs.vms_processed }}'
     quick: true
+  netapp_cvos_stopped:
+    value: '{{ .grains.power_off_netapp_cvo.outputs.cvo_vms }}'
+    quick: true
 
 grains:
+  # The built-in torque-actions netapp-cvo-azure-deallocate-vm-tf action is env_resource
+  # scoped, so it cannot be sequenced against the VM grain inside one workflow. This
+  # playbook does the same thing env-wide, and is a no-op when the environment holds no
+  # netapp-cloudmanager_cvo_azure resources.
   power_off_netapp_cvo:
     kind: ansible
     spec:
-      built-in: true
       source:
-        path: https://github.com/QualiTorque/torque-actions.git//resource/netapp-cvo-azure-deallocate-vm-tf.yaml
+        store: torque-demo
+        path: ansible/azure/netapp-cvo-power.yaml
       agent:
         name: '{{ .inputs.agent }}'
+      inputs:
+        - power_action: stop
+      inventory-file:
+        localhost:
+          hosts:
+            127.0.0.1:
+              ansible_connection: local
+      outputs:
+        - cvo_vms
+        - cvo_count
 
   power_off_by_sequence:
     kind: ansible
