@@ -1,0 +1,58 @@
+spec_version: 2
+
+labels:
+  - kubernetes
+  - jira
+  - mcp
+
+environment:
+  environment_name: jira-mcp-demo
+  owner_email: johnathan.v@quali.com
+  state: inactive
+  description: Deploys the Jira MCP server (mcp ns) into the agent's Kubernetes cluster, wired to an external Jira instance. Jira is SaaS/on-prem, so its URL and token are supplied as inputs rather than computed.
+
+inputs:
+  # Must be a Kubernetes agent residing in the target cluster.
+  # TODO: replace with your actual Torque Kubernetes agent name.
+  k8s_agent:
+    type: string
+    default: k8s-agent
+    description: Name of the Kubernetes agent (and runner cluster) to deploy into.
+  # TODO: replace with your Jira URL.
+  jira_url:
+    type: string
+    default: https://your-domain.atlassian.net
+    description: Base URL of the Jira instance the MCP server connects to.
+  jira_username:
+    type: string
+    default: johnathan.v@quali.com
+    description: Atlassian account email (Cloud auth). Leave blank when auth_mode is server.
+  # TODO: supply at launch — do not commit a real token.
+  jira_token:
+    type: string
+    sensitive: true
+    description: Jira API token (Cloud) or Personal Access Token (Server/DC).
+  projects_filter:
+    type: string
+    default: ''
+    description: Optional comma-separated project keys to restrict the server to, e.g. PROJ,DEV.
+
+grains:
+  mcp:
+    kind: blueprint
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/jira-mcp.yaml
+      inputs:
+        - agent: '{{ .inputs.k8s_agent }}'
+        - jira_url: '{{ .inputs.jira_url }}'
+        - auth_mode: cloud
+        - jira_username: '{{ .inputs.jira_username }}'
+        - jira_token: '{{ .inputs.jira_token }}'
+        - projects_filter: '{{ .inputs.projects_filter }}'
+        # Start read-only, so the demo can't transition or close a real ticket by
+        # accident. Flip to 'false' to show off the write tools.
+        - read_only: 'true'
+      outputs:
+        - mcp_endpoint

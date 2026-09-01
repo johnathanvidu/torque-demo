@@ -1,0 +1,52 @@
+spec_version: 2
+
+labels:
+  - kubernetes
+  - postgres
+  - mcp
+
+environment:
+  environment_name: postgres-mcp-demo
+  owner_email: johnathan.v@quali.com
+  state: inactive
+  description: Deploys PostgreSQL (postgres ns) and the PostgreSQL MCP server (mcp ns) into the agent's Kubernetes cluster. The MCP server's connection URI is calculated dynamically from the Postgres deployment and wired in.
+
+inputs:
+  # Must be a Kubernetes agent residing in the target cluster.
+  # TODO: replace with your actual Torque Kubernetes agent name.
+  k8s_agent:
+    type: string
+    default: k8s-agent
+    description: Name of the Kubernetes agent (and runner cluster) to deploy into.
+
+grains:
+  postgres:
+    kind: blueprint
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/postgres.yaml
+      inputs:
+        - agent: '{{ .inputs.k8s_agent }}'
+        - namespace: postgres
+      outputs:
+        - database_uri
+        - postgres_host
+        - postgres_port
+        - postgres_database
+        - postgres_user
+
+  mcp:
+    kind: blueprint
+    depends-on: postgres
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/postgres-mcp.yaml
+      inputs:
+        - agent: '{{ .inputs.k8s_agent }}'
+        - database_uri: '{{ .grains.postgres.outputs.database_uri }}'
+        # Read-only by default. Flip to 'unrestricted' to let an agent write.
+        - access_mode: restricted
+      outputs:
+        - mcp_endpoint

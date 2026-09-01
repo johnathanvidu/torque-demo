@@ -1,0 +1,41 @@
+spec_version: 2
+
+labels:
+  - kubernetes
+  - github
+  - mcp
+
+environment:
+  environment_name: github-mcp-demo
+  owner_email: johnathan.v@quali.com
+  state: inactive
+  description: Deploys the GitHub MCP server (mcp ns) into the agent's Kubernetes cluster. The server stores no credentials - each client sends its own PAT in an Authorization header - so there is nothing to wire in at deploy time.
+
+inputs:
+  # Must be a Kubernetes agent residing in the target cluster.
+  # TODO: replace with your actual Torque Kubernetes agent name.
+  k8s_agent:
+    type: string
+    default: k8s-agent
+    description: Name of the Kubernetes agent (and runner cluster) to deploy into.
+  toolsets:
+    type: string
+    default: 'repos,issues,pull_requests,actions'
+    description: Comma-separated toolsets to enable. Blank uses the server's default selection.
+
+grains:
+  mcp:
+    kind: blueprint
+    spec:
+      source:
+        store: torque-demo
+        path: blueprints/github-mcp.yaml
+      inputs:
+        - agent: '{{ .inputs.k8s_agent }}'
+        - toolsets: '{{ .inputs.toolsets }}'
+        # The server is read-write; clients that shouldn't mutate anything dial the
+        # /readonly path instead. Set 'true' to make read-only the hard guarantee.
+        - read_only: 'false'
+      outputs:
+        - mcp_endpoint
+        - mcp_endpoint_readonly
