@@ -22,12 +22,15 @@ spec:
         - name: postgres-mcp
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # postgres-mcp 0.3.0 flags: --transport {stdio,sse} with --sse-host /
+          # --sse-port. It has no --streamable-http-* flags and argparse rejects
+          # --transport streamable-http outright (exit code 2, CrashLoopBackOff).
           args:
             - "--transport"
             - "{{ .Values.transport }}"
-            - "--streamable-http-host"
+            - "--sse-host"
             - "{{ .Values.bindHost }}"
-            - "--streamable-http-port"
+            - "--sse-port"
             - "{{ .Values.port }}"
             - "--access-mode"
             - "{{ .Values.accessMode }}"
@@ -43,9 +46,9 @@ spec:
                 secretKeyRef:
                   name: postgres-mcp-auth
                   key: databaseUri
-          # TCP probes, not httpGet: the streamable-http endpoint is /mcp and it
-          # rejects a bare GET without MCP session negotiation, so an httpGet probe
-          # never returns a 2xx. postgres-mcp exposes no separate health path.
+          # TCP probes, not httpGet: the SSE endpoint is /sse and a bare GET on it
+          # opens a long-lived event stream rather than returning a 2xx body, so an
+          # httpGet probe is a poor fit. postgres-mcp exposes no health path.
           readinessProbe:
             tcpSocket:
               port: http

@@ -4,7 +4,10 @@
 
 image:
   repository: crystaldba/postgres-mcp
-  tag: "latest"
+  # Pinned, not "latest": the CLI surface changes between releases and the
+  # transport flags below are version-specific. 0.3.0 is the newest published
+  # tag (and is what "latest" currently points at).
+  tag: "0.3.0"
   pullPolicy: IfNotPresent
 
 replicas: 1
@@ -24,13 +27,17 @@ databaseUri: ""
 accessMode: "restricted"
 
 # --- Server transport config ---
-# streamable-http (recommended) or sse. stdio is not usable in k8s.
-transport: "streamable-http"
+# postgres-mcp 0.3.0 only implements "stdio" and "sse" (`--transport` rejects
+# anything else, and there are no --streamable-http-* flags). stdio is not usable
+# in k8s, so SSE it is: the stream is served on /sse and clients POST back to
+# /messages. Do not set this to streamable-http until an image that supports it
+# ships.
+transport: "sse"
 # Port the MCP server listens on inside the pod and the Service exposes.
 port: 8000
 # The server binds this address. MUST be 0.0.0.0 — postgres-mcp defaults
-# --streamable-http-host to "localhost", which only accepts in-pod loopback
-# traffic and is therefore unreachable through a k8s Service.
+# --sse-host to "localhost", which only accepts in-pod loopback traffic and is
+# therefore unreachable through a k8s Service.
 bindHost: "0.0.0.0"
 
 service:

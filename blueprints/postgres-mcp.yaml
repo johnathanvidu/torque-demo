@@ -30,14 +30,15 @@ inputs:
     description: restricted = read-only transactions with query-shape protections. unrestricted = full read/write DDL and DML.
 
 outputs:
-  # In-cluster endpoint of the MCP server, for other in-cluster clients / agents.
+  # In-cluster SSE endpoint of the MCP server, for other in-cluster clients /
+  # agents. postgres-mcp 0.3.0 speaks SSE, not streamable-http.
   mcp_endpoint:
-    value: 'http://postgres-mcp.mcp.svc.cluster.local:8000/mcp'
+    value: 'http://postgres-mcp.mcp.svc.cluster.local:8000/sse'
   # One command to use the server from the Claude CLI: register it (-s user = global
   # scope, works from any directory), then hold the port-forward tunnel open in the
   # foreground (Ctrl+C to stop).
   claude_cli_setup:
-    value: 'claude mcp add -s user --transport http postgres-mcp http://localhost:8000/mcp && kubectl port-forward svc/postgres-mcp -n mcp 8000:8000'
+    value: 'claude mcp add -s user --transport sse postgres-mcp http://localhost:8000/sse && kubectl port-forward svc/postgres-mcp -n mcp 8000:8000'
   # Unregister the MCP server from the Claude CLI (stop the port-forward separately).
   claude_mcp_delete_command:
     value: 'claude mcp remove -s user postgres-mcp'
