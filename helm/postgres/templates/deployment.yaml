@@ -1,0 +1,110 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels:
+    app: postgres
+spec:
+  replicas: {{ .Values.replicas }}
+  # Recreate, not RollingUpdate: two Postgres pods must never hold the same
+  # volume, and the default rolling update starts the new pod before the old
+  # one goes away.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+        - name: postgres
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              value: "{{ .Values.username }}"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-auth
+                  key: password
+            - name: POSTGRES_DB
+              value: "{{ .Values.database }}"
+            # A subdirectory, not the mount root: initdb refuses to run in a
+            # directory that isn't empty, and a real PVC arrives with lost+found
+            # already in it.
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql/data
+            {{- if eq (toString .Values.seedData) "true" }}
+            - name: seed
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+            {{- end }}
+          # pg_isready, not a TCP check: Postgres accepts connections on 5432 while
+          # it is still running the init scripts and then restarts, so a TCP probe
+          # marks the pod Ready before the seed data exists — and the MCP server
+          # connects to a half-built database.
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "{{ .Values.username }}", "-d", "{{ .Values.database }}"]
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 30
+          livenessProbe:
+            exec:
+              command: ["pg_isready", "-U", "{{ .Values.username }}", "-d", "{{ .Values.database }}"]
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: data
+          {{- if eq (toString .Values.persistence.enabled) "true" }}
+          persistentVolumeClaim:
+            claimName: postgres-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        {{- if eq (toString .Values.seedData) "true" }}
+        - name: seed
+          configMap:
+            name: postgres-seed
+        {{- end }}
+{{- if eq (toString .Values.persistence.enabled) "true" }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-data
+  labels:
+    app: postgres
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size }}
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . }}
+  {{- end }}
+{{- end }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-auth
+  labels:
+    app: postgres
+type: Opaque
+stringData:
+  password: "{{ .Values.password }}"

@@ -1,0 +1,49 @@
+{{- if eq (toString .Values.seedData) "true" }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-seed
+  labels:
+    app: postgres
+data:
+  # Files in /docker-entrypoint-initdb.d run in filename order, once, on an empty
+  # data directory. Keeping this to one file keeps the ordering trivially obvious.
+  01-seed.sql: |
+    CREATE TABLE customers (
+      id          serial PRIMARY KEY,
+      name        text        NOT NULL,
+      email       text        NOT NULL UNIQUE,
+      country     text        NOT NULL,
+      created_at  timestamptz NOT NULL DEFAULT now()
+    );
+
+    CREATE TABLE orders (
+      id           serial PRIMARY KEY,
+      customer_id  integer     NOT NULL REFERENCES customers(id),
+      status       text        NOT NULL,
+      total_cents  integer     NOT NULL,
+      placed_at    timestamptz NOT NULL DEFAULT now()
+    );
+
+    -- Deliberately indexed on one side only: orders.customer_id has no index, so
+    -- the MCP server's index-tuning and explain-plan tools have a real finding to
+    -- report instead of a perfectly tuned toy schema.
+    CREATE INDEX customers_country_idx ON customers (country);
+
+    INSERT INTO customers (name, email, country)
+    SELECT
+      'Customer ' || i,
+      'customer' || i || '@example.com',
+      (ARRAY['US','GB','DE','IL','JP'])[1 + (i % 5)]
+    FROM generate_series(1, 500) AS s(i);
+
+    INSERT INTO orders (customer_id, status, total_cents, placed_at)
+    SELECT
+      1 + (i % 500),
+      (ARRAY['pending','paid','shipped','refunded'])[1 + (i % 4)],
+      500 + (i * 37) % 40000,
+      now() - (i || ' hours')::interval
+    FROM generate_series(1, 5000) AS s(i);
+
+    ANALYZE;
+{{- end }}

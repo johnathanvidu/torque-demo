@@ -1,0 +1,75 @@
+# jira-mcp chart values. Overridden by the Torque helm grain inputs — in
+# particular jiraUrl / jiraUsername / jiraToken, which come from the blueprint's
+# inputs (the Jira instance is external, so these are supplied, not computed).
+
+image:
+  repository: ghcr.io/sooperset/mcp-atlassian
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# --- Required for the MCP server to reach Jira ---
+# Base URL of the Jira instance.
+#   Cloud:     https://<your-domain>.atlassian.net
+#   Server/DC: https://jira.your-company.com
+jiraUrl: ""
+# cloud  => authenticates with jiraUsername + API token  (JIRA_USERNAME / JIRA_API_TOKEN)
+# server => authenticates with a Personal Access Token   (JIRA_PERSONAL_TOKEN)
+# The two auth modes use different env vars entirely; mcp-atlassian picks its
+# client based on which pair is present, so only one set is rendered.
+authMode: "cloud"
+# Atlassian account email. Cloud only — ignored when authMode is "server".
+jiraUsername: ""
+# Cloud: API token from https://id.atlassian.com/manage-profile/security/api-tokens
+# Server/DC: Personal Access Token.
+jiraToken: ""
+# Verify the Jira TLS certificate. Set "false" for Server/DC behind a private CA.
+sslVerify: "true"
+
+# --- Scoping / safety ---
+# Comma-separated project keys the server is allowed to touch, e.g. "PROJ,DEV".
+# Empty => all projects the token can see.
+projectsFilter: ""
+# Comma-separated tool allowlist, e.g. "jira_get_issue,jira_search".
+# Empty => every Jira tool is exposed.
+enabledTools: ""
+# "true" disables every write tool (create/update/transition/delete).
+readOnlyMode: "false"
+
+# --- Server transport config ---
+# streamable-http (recommended) or sse. stdio is not usable in k8s.
+transport: "streamable-http"
+# Port the MCP server listens on inside the pod and the Service exposes.
+port: 9000
+# Host the server binds. mcp-atlassian already defaults to 0.0.0.0, but it is
+# pinned here so a future default change can't silently make the pod
+# loopback-only and unreachable through the Service.
+bindHost: "0.0.0.0"
+# Path the streamable-http endpoint is served on (mcp-atlassian's --path).
+endpointPath: "/mcp"
+# Run streamable-http without server-side session state. Required for anything
+# that may scale past one replica or sit behind a Service that round-robins:
+# a stateful server pins each client to the pod that created its session.
+# Only valid with streamable-http — mcp-atlassian errors out on stdio/sse.
+stateless: true
+# mcp-atlassian's HTTP transports are multi-user by default: they expect each
+# request to carry the caller's own token in an Authorization header, and REFUSE
+# to fall back to the server-side credentials above. This deployment is
+# single-tenant (one token, in a Secret), so the fallback must be opted into or
+# every unauthenticated call fails with "refusing to serve an unauthenticated
+# request with the operator's global credentials".
+allowGlobalCredFallback: true
+# -v (info) or -vv (debug). Blank for warnings only.
+verbosity: "-v"
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

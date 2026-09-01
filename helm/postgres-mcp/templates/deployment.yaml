@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-mcp
+  labels:
+    app: postgres-mcp
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: postgres-mcp
+  template:
+    metadata:
+      labels:
+        app: postgres-mcp
+      annotations:
+        # Roll the pod when the connection URI changes — a Secret-only update
+        # leaves the running pod pointed at the old database.
+        checksum/db: {{ .Values.databaseUri | sha256sum }}
+    spec:
+      containers:
+        - name: postgres-mcp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "--transport"
+            - "{{ .Values.transport }}"
+            - "--streamable-http-host"
+            - "{{ .Values.bindHost }}"
+            - "--streamable-http-port"
+            - "{{ .Values.port }}"
+            - "--access-mode"
+            - "{{ .Values.accessMode }}"
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+          env:
+            # The connection URI is also accepted as a positional argument, but it
+            # carries the password — keep it in a Secret rather than in the pod's
+            # command line, where `kubectl get pod -o yaml` would print it.
+            - name: DATABASE_URI
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-mcp-auth
+                  key: databaseUri
+          # TCP probes, not httpGet: the streamable-http endpoint is /mcp and it
+          # rejects a bare GET without MCP session negotiation, so an httpGet probe
+          # never returns a 2xx. postgres-mcp exposes no separate health path.
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-mcp-auth
+  labels:
+    app: postgres-mcp
+type: Opaque
+stringData:
+  databaseUri: "{{ .Values.databaseUri }}"

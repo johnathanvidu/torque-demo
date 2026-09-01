@@ -1,0 +1,38 @@
+# Minimal PostgreSQL chart values. Overridden by the Torque helm grain inputs.
+
+image:
+  repository: postgres
+  tag: "16"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# Credentials and database created on first start. The Postgres MCP blueprint
+# assembles these into the DATABASE_URI it hands the MCP server.
+username: torque
+password: torque
+database: torquedemo
+
+service:
+  # Port the in-cluster Service listens on. The container always serves on 5432.
+  port: 5432
+
+# Seed the database with a small schema + rows on first start, so the MCP server
+# has something real to introspect (tables, indexes, a slow query to explain).
+# Rendered into a ConfigMap mounted at /docker-entrypoint-initdb.d.
+seedData: true
+
+# Demo-grade storage: an emptyDir, so the data is gone when the pod restarts.
+# Swap for a PVC if you need the data to survive a reschedule.
+persistence:
+  enabled: false
+  size: 5Gi
+  # storageClass: ""
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: 1000m
+    memory: 1Gi

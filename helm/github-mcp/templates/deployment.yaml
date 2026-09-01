@@ -1,0 +1,67 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: github-mcp
+  labels:
+    app: github-mcp
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: github-mcp
+  template:
+    metadata:
+      labels:
+        app: github-mcp
+    spec:
+      containers:
+        - name: github-mcp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          # The image's ENTRYPOINT is the server binary with CMD ["stdio"]; args
+          # here replace that CMD, so "http" selects the HTTP transport.
+          args:
+            - "http"
+            - "--port"
+            - "{{ .Values.port }}"
+            {{- with .Values.listenHost }}
+            - "--listen-host"
+            - "{{ . }}"
+            {{- end }}
+            {{- with .Values.ghHost }}
+            - "--gh-host"
+            - "{{ . }}"
+            {{- end }}
+            {{- with .Values.toolsets }}
+            - "--toolsets"
+            - "{{ . }}"
+            {{- end }}
+            {{- with .Values.excludeTools }}
+            - "--exclude-tools"
+            - "{{ . }}"
+            {{- end }}
+            {{- if eq (toString .Values.readOnly) "true" }}
+            - "--read-only"
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+          # TCP probes, not httpGet: every HTTP route on this server is behind the
+          # token-extraction middleware, so an unauthenticated probe gets a 401 —
+          # which the kubelet counts as a failure and the pod is never Ready.
+          # There is no unauthenticated health path to point a probe at. A TCP
+          # check confirms the listener is up without needing a credential.
+          readinessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 3
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            tcpSocket:
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}

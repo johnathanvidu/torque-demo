@@ -1,0 +1,6 @@
+apiVersion: v2
+name: jira-mcp
+description: Jira MCP server (sooperset/mcp-atlassian) exposed in-cluster over streamable-http.
+type: application
+version: 0.1.0
+appVersion: "latest"

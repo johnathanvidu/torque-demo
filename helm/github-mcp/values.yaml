@@ -1,0 +1,51 @@
+# github-mcp chart values. Overridden by the Torque helm grain inputs.
+#
+# NOTE ON AUTH — this server holds NO credentials.
+# github-mcp-server's `http` command is a multi-user server: it extracts the
+# caller's token from the request's Authorization header on every request and has
+# no server-side token setting at all. A request without that header gets a 401
+# plus a WWW-Authenticate challenge. So there is deliberately no Secret in this
+# chart and no GITHUB_PERSONAL_ACCESS_TOKEN env var (that variable only applies
+# to the `stdio` command). Each client sends its own PAT:
+#   Authorization: Bearer ghp_...
+
+image:
+  repository: ghcr.io/github/github-mcp-server
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# --- Server transport config ---
+# Port the server listens on inside the pod and the Service exposes. 8082 is the
+# upstream default for the `http` command.
+port: 8082
+# Host the server binds to. MUST stay empty — github-mcp-server treats empty as
+# "bind all interfaces", and any concrete value (e.g. 127.0.0.1) makes the pod
+# loopback-only and unreachable through the Service.
+listenHost: ""
+# GitHub hostname. Empty => github.com. Set to https://ghes.example.com for
+# GitHub Enterprise Server. Maps to --gh-host.
+ghHost: ""
+
+# --- Tool surface ---
+# Comma-separated toolsets to enable, e.g. "repos,issues,pull_requests,actions".
+# Empty => the server's default toolset selection.
+toolsets: ""
+# true adds --read-only, which strips every mutating tool. Note that clients can
+# ALSO reach a read-only view of a read-write server by dialing the /readonly
+# path, so this flag is the hard, server-side guarantee.
+readOnly: false
+# Comma-separated tool names to drop regardless of the toolsets above.
+excludeTools: ""
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

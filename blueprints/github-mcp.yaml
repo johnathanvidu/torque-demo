@@ -1,0 +1,72 @@
+spec_version: 2
+description: Deploy a GitHub MCP server that gives AI agents live access to GitHub - search code and repos, read and open issues and pull requests, review diffs, and inspect Actions workflow runs. Each client authenticates with its own PAT, so no token is stored in the cluster.
+
+metadata:
+  self-service: true
+  display-name: GitHub MCP Server
+  icon:
+    path: icons/github.svg
+  blueprint-labels:
+    - key: type
+      value: mcp
+
+# There is intentionally no token input. github-mcp-server's `http` command is a
+# multi-user server: it reads the caller's PAT from each request's Authorization
+# header and has no server-side token setting, so the deployment holds no
+# credentials at all. Every remaining knob (image tag, port, bind host, namespace)
+# is fixed in helm/github-mcp/values.yaml.
+inputs:
+  agent:
+    type: agent
+    description: Kubernetes agent that runs the Helm grain. The MCP server is deployed into the cluster this agent resides in.
+  toolsets:
+    type: string
+    default: ''
+    description: Optional comma-separated toolsets to enable, e.g. repos,issues,pull_requests,actions. Blank uses the server's default selection.
+  read_only:
+    type: string
+    default: 'false'
+    allowed-values:
+      - 'true'
+      - 'false'
+    description: Set true to strip every mutating tool server-side (no commits, no issue/PR writes).
+  gh_host:
+    type: string
+    default: ''
+    description: GitHub Enterprise Server base URL, e.g. https://github.your-company.com. Leave blank for github.com.
+
+outputs:
+  # In-cluster endpoint of the MCP server. The MCP routes are mounted at the root
+  # path, not /mcp — github-mcp-server serves the protocol from "/".
+  mcp_endpoint:
+    value: 'http://github-mcp.mcp.svc.cluster.local:8082/'
+  # Read-only view of the same server, for clients that should never mutate
+  # anything regardless of the read_only input above.
+  mcp_endpoint_readonly:
+    value: 'http://github-mcp.mcp.svc.cluster.local:8082/readonly'
+  # One command to use the server from the Claude CLI: register it (-s user = global
+  # scope, works from any directory) with your own PAT in the Authorization header,
+  # then hold the port-forward tunnel open in the foreground (Ctrl+C to stop).
+  # Replace <YOUR_GITHUB_PAT> — the server has no token of its own, so a request
+  # without this header is rejected with 401.
+  claude_cli_setup:
+    value: 'claude mcp add -s user --transport http github-mcp http://localhost:8082/ --header "Authorization: Bearer <YOUR_GITHUB_PAT>" && kubectl port-forward svc/github-mcp -n mcp 8082:8082'
+  # Unregister the MCP server from the Claude CLI (stop the port-forward separately).
+  claude_mcp_delete_command:
+    value: 'claude mcp remove -s user github-mcp'
+
+grains:
+  github-mcp:
+    kind: helm
+    spec:
+      source:
+        store: torque-demo
+        path: helm/github-mcp
+      agent:
+        name: '{{ .inputs.agent }}'
+      target-namespace: mcp
+      command-arguments: '--create-namespace --wait --timeout 3m'
+      inputs:
+        - toolsets: '{{ .inputs.toolsets }}'
+        - readOnly: '{{ .inputs.read_only }}'
+        - ghHost: '{{ .inputs.gh_host }}'

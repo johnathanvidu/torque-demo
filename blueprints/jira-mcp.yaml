@@ -1,0 +1,91 @@
+spec_version: 2
+description: Deploy a Jira MCP server that gives AI agents live access to Jira - search issues with JQL, read and comment on tickets, transition workflows, manage sprints and boards, and log work.
+
+metadata:
+  self-service: true
+  display-name: Jira MCP Server
+  icon:
+    path: icons/jira.svg
+  blueprint-labels:
+    - key: type
+      value: mcp
+
+# Jira is an external SaaS/on-prem service, so unlike the Grafana MCP demo the
+# connection details are supplied rather than computed. Everything else (image
+# tag, transport, port, endpoint path, bind host, stateless mode, namespace)
+# is fixed and lives in helm/jira-mcp/values.yaml.
+inputs:
+  agent:
+    type: agent
+    description: Kubernetes agent that runs the Helm grain. The MCP server is deployed into the cluster this agent resides in.
+  jira_url:
+    type: string
+    description: 'Base URL of your Jira instance. Cloud: https://your-domain.atlassian.net — Server/DC: https://jira.your-company.com'
+    pattern: '^https?://.+'
+    validation-description: Must be a full URL starting with http:// or https://
+  auth_mode:
+    type: string
+    default: cloud
+    allowed-values:
+      - cloud
+      - server
+    description: 'cloud = Atlassian Cloud (email + API token). server = Jira Server/Data Center (Personal Access Token).'
+  jira_username:
+    type: string
+    default: ''
+    description: Atlassian account email. Required for auth_mode "cloud"; leave blank for "server".
+  jira_token:
+    type: string
+    sensitive: true
+    description: 'Cloud: API token from id.atlassian.com/manage-profile/security/api-tokens. Server/DC: a Personal Access Token.'
+  projects_filter:
+    type: string
+    default: ''
+    description: Optional comma-separated project keys to restrict the server to, e.g. PROJ,DEV. Blank means every project the token can see.
+  read_only:
+    type: string
+    default: 'false'
+    allowed-values:
+      - 'true'
+      - 'false'
+    description: Set true to disable every write tool (create/update/transition/delete issues).
+  ssl_verify:
+    type: string
+    default: 'true'
+    allowed-values:
+      - 'true'
+      - 'false'
+    description: Verify the Jira TLS certificate. Set false only for Server/DC behind a private CA.
+
+outputs:
+  # In-cluster endpoint of the MCP server, for other in-cluster clients / agents.
+  mcp_endpoint:
+    value: 'http://jira-mcp.mcp.svc.cluster.local:9000/mcp'
+  # One command to use the server from the Claude CLI: register it (-s user = global
+  # scope, works from any directory), then hold the port-forward tunnel open in the
+  # foreground (Ctrl+C to stop).
+  claude_cli_setup:
+    value: 'claude mcp add -s user --transport http jira-mcp http://localhost:9000/mcp && kubectl port-forward svc/jira-mcp -n mcp 9000:9000'
+  # Unregister the MCP server from the Claude CLI (stop the port-forward separately).
+  claude_mcp_delete_command:
+    value: 'claude mcp remove -s user jira-mcp'
+
+grains:
+  jira-mcp:
+    kind: helm
+    spec:
+      source:
+        store: torque-demo
+        path: helm/jira-mcp
+      agent:
+        name: '{{ .inputs.agent }}'
+      target-namespace: mcp
+      command-arguments: '--create-namespace --wait --timeout 3m'
+      inputs:
+        - jiraUrl: '{{ .inputs.jira_url }}'
+        - authMode: '{{ .inputs.auth_mode }}'
+        - jiraUsername: '{{ .inputs.jira_username }}'
+        - jiraToken: '{{ .inputs.jira_token }}'
+        - projectsFilter: '{{ .inputs.projects_filter }}'
+        - readOnlyMode: '{{ .inputs.read_only }}'
+        - sslVerify: '{{ .inputs.ssl_verify }}'

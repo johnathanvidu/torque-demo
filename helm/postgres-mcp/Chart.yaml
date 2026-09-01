@@ -1,0 +1,6 @@
+apiVersion: v2
+name: postgres-mcp
+description: PostgreSQL MCP server (crystaldba/postgres-mcp) exposed in-cluster over streamable-http.
+type: application
+version: 0.1.0
+appVersion: "latest"

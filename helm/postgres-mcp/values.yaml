@@ -1,0 +1,45 @@
+# postgres-mcp chart values. Overridden by the Torque helm grain inputs — in
+# particular databaseUri, which is computed at deploy time by the Postgres
+# blueprint and wired in via the environment.
+
+image:
+  repository: crystaldba/postgres-mcp
+  tag: "latest"
+  pullPolicy: IfNotPresent
+
+replicas: 1
+
+# --- Required for the MCP server to reach Postgres ---
+# Full libpq connection URI, e.g.
+#   postgresql://torque:torque@postgres.postgres.svc.cluster.local:5432/torquedemo
+# Wired from the Postgres grain output. Read from a Secret at runtime, since the
+# password is embedded in it.
+databaseUri: ""
+
+# --- SQL safety ---
+# restricted   => read-only transactions plus query-shape protections
+# unrestricted => full read/write. The container default is unrestricted; this
+#                 chart defaults to restricted so an agent with the endpoint
+#                 can't drop a table by accident.
+accessMode: "restricted"
+
+# --- Server transport config ---
+# streamable-http (recommended) or sse. stdio is not usable in k8s.
+transport: "streamable-http"
+# Port the MCP server listens on inside the pod and the Service exposes.
+port: 8000
+# The server binds this address. MUST be 0.0.0.0 — postgres-mcp defaults
+# --streamable-http-host to "localhost", which only accepts in-pod loopback
+# traffic and is therefore unreachable through a k8s Service.
+bindHost: "0.0.0.0"
+
+service:
+  type: ClusterIP
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi

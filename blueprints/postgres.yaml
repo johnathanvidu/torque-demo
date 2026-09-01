@@ -1,0 +1,92 @@
+spec_version: 2
+description: Deploy PostgreSQL into the "postgres" namespace of the agent's Kubernetes cluster, seeded with a small demo schema, and emit the connection URI so downstream tools (the PostgreSQL MCP server) can connect to it.
+
+metadata:
+  self-service: true
+  display-name: PostgreSQL (in-cluster)
+  icon:
+    path: icons/postgres.svg
+
+inputs:
+  agent:
+    type: agent
+    description: Kubernetes agent that runs the Helm grain. Postgres is deployed into the cluster this agent resides in.
+  namespace:
+    type: string
+    default: postgres
+    description: Namespace to deploy Postgres into (created if missing). Also determines the in-cluster hostname.
+  postgres_version:
+    type: string
+    default: '16'
+    description: Postgres image tag.
+  service_port:
+    type: string
+    default: '5432'
+    description: Port the in-cluster Postgres Service listens on.
+  db_user:
+    type: string
+    default: torque
+    description: Database role created on first start.
+  db_password:
+    type: string
+    default: torque
+    sensitive: true
+    description: 'Password for the database role. Avoid characters that need URL-encoding (@ / ? or a colon) — it is embedded verbatim in the connection URI.'
+  db_name:
+    type: string
+    default: torquedemo
+    description: Database created on first start.
+  seed_data:
+    type: string
+    default: 'true'
+    allowed-values:
+      - 'true'
+      - 'false'
+    description: Seed a customers/orders schema with sample rows, so the MCP server has real tables, indexes, and query plans to inspect.
+  persistence:
+    type: string
+    default: 'false'
+    allowed-values:
+      - 'true'
+      - 'false'
+    description: Back the data directory with a PersistentVolumeClaim instead of an emptyDir. Leave false for a throwaway demo.
+
+outputs:
+  # The dynamically calculated auth input for the MCP server: a full libpq URI
+  # assembled from the namespace, Service port, and credentials above. Change the
+  # namespace, the port, or the password and this is recomputed and re-wired.
+  database_uri:
+    value: 'postgresql://{{ .inputs.db_user }}:{{ .inputs.db_password }}@postgres.{{ .inputs.namespace }}.svc.cluster.local:{{ .inputs.service_port }}/{{ .inputs.db_name }}'
+    sensitive: true
+  # Host/port/name broken out, for clients that build their own connection string.
+  postgres_host:
+    value: 'postgres.{{ .inputs.namespace }}.svc.cluster.local'
+  postgres_port:
+    value: '{{ .inputs.service_port }}'
+  postgres_database:
+    value: '{{ .inputs.db_name }}'
+  postgres_user:
+    value: '{{ .inputs.db_user }}'
+  # psql from your laptop: run the port-forward, then connect over localhost.
+  psql_setup:
+    value: 'kubectl port-forward svc/postgres -n {{ .inputs.namespace }} {{ .inputs.service_port }}:{{ .inputs.service_port }}'
+
+grains:
+  postgres:
+    kind: helm
+    spec:
+      source:
+        store: torque-demo
+        path: helm/postgres
+      agent:
+        name: '{{ .inputs.agent }}'
+      target-namespace: '{{ .inputs.namespace }}'
+      command-arguments: '--create-namespace --wait --timeout 5m'
+      inputs:
+        - image.tag: '{{ .inputs.postgres_version }}'
+        - username: '{{ .inputs.db_user }}'
+        - password: '{{ .inputs.db_password }}'
+        - database: '{{ .inputs.db_name }}'
+        - service.port: '{{ .inputs.service_port }}'
+        - seedData: '{{ .inputs.seed_data }}'
+        - persistence.enabled: '{{ .inputs.persistence }}'

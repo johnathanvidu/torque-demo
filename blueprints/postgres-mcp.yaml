@@ -1,0 +1,60 @@
+spec_version: 2
+description: Deploy a PostgreSQL MCP server that gives AI agents live access to a Postgres database - explore schemas, run SQL, read query plans, get index-tuning recommendations, and check database health.
+
+metadata:
+  self-service: true
+  display-name: PostgreSQL MCP Server
+  icon:
+    path: icons/postgres.svg
+  blueprint-labels:
+    - key: type
+      value: mcp
+
+# Only three inputs - everything else (image tag, transport, port, bind host,
+# namespace) is fixed and lives in helm/postgres-mcp/values.yaml.
+inputs:
+  agent:
+    type: agent
+    description: Kubernetes agent that runs the Helm grain (same cluster as the database).
+  # ---- Wired dynamically from the Postgres blueprint (not entered by the user) ----
+  database_uri:
+    type: string
+    sensitive: true
+    description: Full libpq connection URI, e.g. postgresql://user:pass@postgres.postgres.svc.cluster.local:5432/db. Assembled at deploy time and wired from the Postgres grain output.
+  access_mode:
+    type: string
+    default: restricted
+    allowed-values:
+      - restricted
+      - unrestricted
+    description: restricted = read-only transactions with query-shape protections. unrestricted = full read/write DDL and DML.
+
+outputs:
+  # In-cluster endpoint of the MCP server, for other in-cluster clients / agents.
+  mcp_endpoint:
+    value: 'http://postgres-mcp.mcp.svc.cluster.local:8000/mcp'
+  # One command to use the server from the Claude CLI: register it (-s user = global
+  # scope, works from any directory), then hold the port-forward tunnel open in the
+  # foreground (Ctrl+C to stop).
+  claude_cli_setup:
+    value: 'claude mcp add -s user --transport http postgres-mcp http://localhost:8000/mcp && kubectl port-forward svc/postgres-mcp -n mcp 8000:8000'
+  # Unregister the MCP server from the Claude CLI (stop the port-forward separately).
+  claude_mcp_delete_command:
+    value: 'claude mcp remove -s user postgres-mcp'
+
+grains:
+  postgres-mcp:
+    kind: helm
+    spec:
+      source:
+        store: torque-demo
+        path: helm/postgres-mcp
+      agent:
+        name: '{{ .inputs.agent }}'
+      target-namespace: mcp
+      command-arguments: '--create-namespace --wait --timeout 3m'
+      # Only the dynamic connection URI plus the safety mode are wired; the rest
+      # are chart defaults.
+      inputs:
+        - databaseUri: '{{ .inputs.database_uri }}'
+        - accessMode: '{{ .inputs.access_mode }}'

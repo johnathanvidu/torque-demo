@@ -1,0 +1,114 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jira-mcp
+  labels:
+    app: jira-mcp
+spec:
+  replicas: {{ .Values.replicas }}
+  selector:
+    matchLabels:
+      app: jira-mcp
+  template:
+    metadata:
+      labels:
+        app: jira-mcp
+      annotations:
+        # Roll the pod when the credentials change — otherwise a Secret-only
+        # update leaves the running pod holding the previous token.
+        checksum/auth: {{ printf "%s|%s|%s" .Values.authMode .Values.jiraUsername .Values.jiraToken | sha256sum }}
+    spec:
+      containers:
+        - name: jira-mcp
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - "--transport"
+            - "{{ .Values.transport }}"
+            - "--host"
+            - "{{ .Values.bindHost }}"
+            - "--port"
+            - "{{ .Values.port }}"
+            - "--path"
+            - "{{ .Values.endpointPath }}"
+            {{- if eq (toString .Values.stateless) "true" }}
+            - "--stateless"
+            {{- end }}
+            {{- with .Values.verbosity }}
+            - "{{ . }}"
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.port }}
+          env:
+            - name: JIRA_URL
+              value: "{{ .Values.jiraUrl }}"
+            {{- if eq .Values.authMode "cloud" }}
+            # Cloud: email + API token.
+            - name: JIRA_USERNAME
+              value: "{{ .Values.jiraUsername }}"
+            - name: JIRA_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: jira-mcp-auth
+                  key: jiraToken
+            {{- else }}
+            # Server / Data Center: Personal Access Token, no username.
+            - name: JIRA_PERSONAL_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: jira-mcp-auth
+                  key: jiraToken
+            {{- end }}
+            - name: JIRA_SSL_VERIFY
+              value: "{{ .Values.sslVerify }}"
+            {{- with .Values.projectsFilter }}
+            - name: JIRA_PROJECTS_FILTER
+              value: "{{ . }}"
+            {{- end }}
+            {{- with .Values.enabledTools }}
+            - name: ENABLED_TOOLS
+              value: "{{ . }}"
+            {{- end }}
+            - name: READ_ONLY_MODE
+              value: "{{ .Values.readOnlyMode }}"
+            {{- if eq (toString .Values.allowGlobalCredFallback) "true" }}
+            # See values.yaml: without this the multi-user HTTP transport rejects
+            # every request that doesn't carry its own Authorization header.
+            - name: ALLOW_GLOBAL_CRED_FALLBACK
+              value: "true"
+            {{- end }}
+            # Confluence is not configured — this server is Jira-only. Leaving the
+            # CONFLUENCE_* vars unset makes mcp-atlassian skip that tool group
+            # instead of failing to build a Confluence client at startup.
+          # mcp-atlassian serves an unauthenticated GET /healthz specifically for
+          # k8s probes, so httpGet works here (unlike the Grafana MCP server,
+          # which needs tcpSocket probes to dodge its Host allowlist).
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 12
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 20
+            periodSeconds: 15
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jira-mcp-auth
+  labels:
+    app: jira-mcp
+type: Opaque
+stringData:
+  # Holds the API token (Cloud) or the PAT (Server/DC) — the deployment mounts it
+  # into whichever env var the selected authMode uses.
+  jiraToken: "{{ .Values.jiraToken }}"
