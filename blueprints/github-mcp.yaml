@@ -1,5 +1,5 @@
 spec_version: 2
-description: Deploy a GitHub MCP server that gives AI agents live access to GitHub - search code and repos, read and open issues and pull requests, review diffs, and inspect Actions workflow runs. Each client authenticates with its own PAT, so no token is stored in the cluster.
+description: Deploy a GitHub MCP server that gives AI agents live access to GitHub - search code and repos, read and open issues and pull requests, review diffs, and inspect Actions workflow runs. Each client authenticates with its own PAT, so no token is stored in the cluster. Can be launched many times against the same cluster - every deployment names its resources after the environment id.
 
 metadata:
   self-service: true
@@ -34,26 +34,42 @@ inputs:
     type: string
     default: ''
     description: GitHub Enterprise Server base URL, e.g. https://github.your-company.com. Leave blank for github.com.
+  local_port:
+    type: string
+    default: '8082'
+    description: >-
+      Local port the claude_cli_setup output's port-forward binds to. The cluster
+      side is always 8082; this is only the laptop side, and it is the one thing
+      that still collides when two of these environments are tunnelled at once —
+      give the second one 8083, and so on.
 
 outputs:
   # In-cluster endpoint of the MCP server. The MCP routes are mounted at the root
   # path, not /mcp — github-mcp-server serves the protocol from "/".
+  #
+  # The environment id is part of the Service name (see the instance input on the
+  # grain below), which is what lets several of these environments share the "mcp"
+  # namespace without their Deployments, Services, and labels colliding.
   mcp_endpoint:
-    value: 'http://github-mcp.mcp.svc.cluster.local:8082/'
+    value: 'http://github-mcp-{{ envId | downcase }}.mcp.svc.cluster.local:8082/'
   # Read-only view of the same server, for clients that should never mutate
   # anything regardless of the read_only input above.
   mcp_endpoint_readonly:
-    value: 'http://github-mcp.mcp.svc.cluster.local:8082/readonly'
+    value: 'http://github-mcp-{{ envId | downcase }}.mcp.svc.cluster.local:8082/readonly'
   # One command to use the server from the Claude CLI: register it (-s user = global
   # scope, works from any directory) with your own PAT in the Authorization header,
   # then hold the port-forward tunnel open in the foreground (Ctrl+C to stop).
   # Replace <YOUR_GITHUB_PAT> — the server has no token of its own, so a request
   # without this header is rejected with 401.
+  #
+  # The registration name carries the environment id too: `claude mcp add` is
+  # keyed by name at user scope, so a fixed "github-mcp" would have the second
+  # environment silently overwrite the first environment's entry.
   claude_cli_setup:
-    value: 'claude mcp add -s user --transport http github-mcp http://localhost:8082/ --header "Authorization: Bearer <YOUR_GITHUB_PAT>" && kubectl port-forward svc/github-mcp -n mcp 8082:8082'
+    value: 'claude mcp add -s user --transport http github-mcp-{{ envId | downcase }} http://localhost:{{ .inputs.local_port }}/ --header "Authorization: Bearer <YOUR_GITHUB_PAT>" && kubectl port-forward svc/github-mcp-{{ envId | downcase }} -n mcp {{ .inputs.local_port }}:8082'
   # Unregister the MCP server from the Claude CLI (stop the port-forward separately).
   claude_mcp_delete_command:
-    value: 'claude mcp remove -s user github-mcp'
+    value: 'claude mcp remove -s user github-mcp-{{ envId | downcase }}'
 
 grains:
   github-mcp:
@@ -64,9 +80,18 @@ grains:
         path: helm/github-mcp
       agent:
         name: '{{ .inputs.agent }}'
+      # Shared namespace on purpose: every MCP server from this repo lands in
+      # "mcp", so one `kubectl get pods -n mcp` shows them all. Isolation comes
+      # from the per-resource instance suffix below, not from the namespace.
       target-namespace: mcp
       command-arguments: '--create-namespace --wait --timeout 3m'
       inputs:
+        # Suffixes every object the chart creates (Deployment, Service, labels)
+        # with the environment id, so a second environment deploying into the same
+        # namespace doesn't hit Helm's "invalid ownership metadata" error or end up
+        # with two Services selecting the same pods. Kept in sync by hand with the
+        # DNS names in the outputs above.
+        - instance: '{{ envId | downcase }}'
         - toolsets: '{{ .inputs.toolsets }}'
         - readOnly: '{{ .inputs.read_only }}'
         - ghHost: '{{ .inputs.gh_host }}'

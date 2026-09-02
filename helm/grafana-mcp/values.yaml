@@ -2,6 +2,17 @@
 # particular grafanaUrl and serviceAccountToken are computed at deploy time by
 # the Grafana blueprint and wired in via the environment.
 
+# --- Instance naming ---------------------------------------------------------
+# Suffix appended to every resource name this chart creates, so the chart can be
+# installed more than once into the SAME namespace. The Torque blueprint sets
+# this to the environment id; leave it blank for a plain `helm install` and the
+# release name is used instead. See templates/_helpers.tpl.
+instance: ""
+# Escape hatches, both blank by default: nameOverride replaces the "grafana-mcp"
+# stem, fullnameOverride replaces the computed name outright.
+nameOverride: ""
+fullnameOverride: ""
+
 image:
   repository: grafana/mcp-grafana
   tag: "latest"
@@ -24,15 +35,20 @@ port: 8000
 # through a k8s Service — the mcp-grafana default of localhost:8000 only accepts
 # in-pod loopback traffic.
 bindAddress: "0.0.0.0"
-# Host header allowlist. mcp-grafana defaults to loopback-only and rejects any
-# request whose Host isn't localhost/127.0.0.1 — including traffic arriving via
-# the Service DNS. List every host clients will dial. The check matches the full
-# Host header, which INCLUDES the port when a client dials a non-default port —
-# so a `kubectl port-forward ... 8000:8000` client sends Host `localhost:8000`
-# and must have the port-qualified variant listed here, not just bare `localhost`.
-# Empty string => allow all (rendered as --allowed-hosts "" which disables the
-# check; fine for a demo).
-allowedHosts: "grafana-mcp.mcp.svc.cluster.local,grafana-mcp,localhost,127.0.0.1,localhost:8000,127.0.0.1:8000"
+# Extra Host header values to allow, comma-separated, ON TOP OF the in-cluster
+# names the chart computes for itself (the Service's bare name and FQDN, each
+# with and without the port - see templates/deployment.yaml). mcp-grafana
+# defaults to loopback-only and rejects any request whose Host isn't
+# localhost/127.0.0.1, including traffic arriving via Service DNS, so the
+# computed entries are what make the in-cluster endpoint reachable at all.
+#
+# What belongs here is the client side: the check matches the FULL Host header,
+# which INCLUDES the port when a client dials a non-default one, so a
+# `kubectl port-forward ... 8001:8000` client sends Host `localhost:8001` and
+# needs that exact port-qualified variant listed. The Torque blueprint rewrites
+# this from its local_port input; the default below covers a straight 8000:8000
+# forward.
+extraAllowedHosts: "localhost,127.0.0.1,localhost:8000,127.0.0.1:8000"
 # Path the streamable-http/sse endpoint is served on. Pinned so it's deterministic
 # across image builds (the latest/devel build defaults this to /mcp).
 endpointPath: "/mcp"

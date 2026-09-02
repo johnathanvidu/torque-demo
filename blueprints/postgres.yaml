@@ -1,5 +1,5 @@
 spec_version: 2
-description: Deploy PostgreSQL into the "postgres" namespace of the agent's Kubernetes cluster, seeded with a small demo schema, and emit the connection URI so downstream tools (the PostgreSQL MCP server) can connect to it.
+description: Deploy PostgreSQL into the "postgres" namespace of the agent's Kubernetes cluster, seeded with a small demo schema, and emit the connection URI so downstream tools (the PostgreSQL MCP server) can connect to it. Can be launched many times against the same cluster - every deployment names its resources after the environment id.
 
 metadata:
   self-service: true
@@ -14,7 +14,11 @@ inputs:
   namespace:
     type: string
     default: postgres
-    description: Namespace to deploy Postgres into (created if missing). Also determines the in-cluster hostname.
+    description: >-
+      Namespace to deploy Postgres into (created if missing). Also determines the
+      in-cluster hostname. Safe to share between environments - the resource names
+      inside it carry the environment id, so two databases in one namespace do not
+      collide.
   postgres_version:
     type: string
     default: '16'
@@ -49,18 +53,28 @@ inputs:
     allowed-values:
       - 'true'
       - 'false'
-    description: Back the data directory with a PersistentVolumeClaim instead of an emptyDir. Leave false for a throwaway demo.
+    description: Back the data directory with a PersistentVolumeClaim instead of an emptyDir. Leave false for a throwaway demo. The claim is named per environment, so two persistent instances never share a volume.
+  local_port:
+    type: string
+    default: '5432'
+    description: >-
+      Local port the psql_setup output's port-forward binds to. The cluster side is
+      always the service_port above; this is only the laptop side, and it is the one
+      thing that still collides when two of these environments are tunnelled at
+      once — give the second one 5433, and so on.
 
 outputs:
   # The dynamically calculated auth input for the MCP server: a full libpq URI
   # assembled from the namespace, Service port, and credentials above. Change the
-  # namespace, the port, or the password and this is recomputed and re-wired.
+  # namespace, the port, or the password and this is recomputed and re-wired. The
+  # environment id is part of the Service name (see the instance input on the grain
+  # below), which is what lets two of these share one namespace.
   database_uri:
-    value: 'postgresql://{{ .inputs.db_user }}:{{ .inputs.db_password }}@postgres.{{ .inputs.namespace }}.svc.cluster.local:{{ .inputs.service_port }}/{{ .inputs.db_name }}'
+    value: 'postgresql://{{ .inputs.db_user }}:{{ .inputs.db_password }}@postgres-{{ envId | downcase }}.{{ .inputs.namespace }}.svc.cluster.local:{{ .inputs.service_port }}/{{ .inputs.db_name }}'
     sensitive: true
   # Host/port/name broken out, for clients that build their own connection string.
   postgres_host:
-    value: 'postgres.{{ .inputs.namespace }}.svc.cluster.local'
+    value: 'postgres-{{ envId | downcase }}.{{ .inputs.namespace }}.svc.cluster.local'
   postgres_port:
     value: '{{ .inputs.service_port }}'
   postgres_database:
@@ -69,7 +83,7 @@ outputs:
     value: '{{ .inputs.db_user }}'
   # psql from your laptop: run the port-forward, then connect over localhost.
   psql_setup:
-    value: 'kubectl port-forward svc/postgres -n {{ .inputs.namespace }} {{ .inputs.service_port }}:{{ .inputs.service_port }}'
+    value: 'kubectl port-forward svc/postgres-{{ envId | downcase }} -n {{ .inputs.namespace }} {{ .inputs.local_port }}:{{ .inputs.service_port }}'
 
 grains:
   postgres:
@@ -83,6 +97,14 @@ grains:
       target-namespace: '{{ .inputs.namespace }}'
       command-arguments: '--create-namespace --wait --timeout 5m'
       inputs:
+        # Suffixes every object the chart creates (Deployment, Service, Secret,
+        # seed ConfigMap, PVC, labels) with the environment id, so a second
+        # environment deploying into the same namespace doesn't hit Helm's
+        # "invalid ownership metadata" error, end up with two Services selecting
+        # the same pods, or — worst of all — mount the same PersistentVolumeClaim
+        # into two Postgres pods. Kept in sync by hand with the hostname in the
+        # outputs above.
+        - instance: '{{ envId | downcase }}'
         - image.tag: '{{ .inputs.postgres_version }}'
         - username: '{{ .inputs.db_user }}'
         - password: '{{ .inputs.db_password }}'

@@ -1,5 +1,5 @@
 spec_version: 2
-description: Deploy a Jira MCP server that gives AI agents live access to Jira - search issues with JQL, read and comment on tickets, transition workflows, manage sprints and boards, and log work.
+description: Deploy a Jira MCP server that gives AI agents live access to Jira - search issues with JQL, read and comment on tickets, transition workflows, manage sprints and boards, and log work. Can be launched many times against the same cluster - every deployment names its resources after the environment id.
 
 metadata:
   self-service: true
@@ -56,19 +56,35 @@ inputs:
       - 'true'
       - 'false'
     description: Verify the Jira TLS certificate. Set false only for Server/DC behind a private CA.
+  local_port:
+    type: string
+    default: '9000'
+    description: >-
+      Local port the claude_cli_setup output's port-forward binds to. The cluster
+      side is always 9000; this is only the laptop side, and it is the one thing
+      that still collides when two of these environments are tunnelled at once —
+      give the second one 9001, and so on.
 
 outputs:
   # In-cluster endpoint of the MCP server, for other in-cluster clients / agents.
+  #
+  # The environment id is part of the Service name (see the instance input on the
+  # grain below), which is what lets several of these environments share the "mcp"
+  # namespace without their Deployments, Services, Secrets, and labels colliding.
   mcp_endpoint:
-    value: 'http://jira-mcp.mcp.svc.cluster.local:9000/mcp'
+    value: 'http://jira-mcp-{{ envId | downcase }}.mcp.svc.cluster.local:9000/mcp'
   # One command to use the server from the Claude CLI: register it (-s user = global
   # scope, works from any directory), then hold the port-forward tunnel open in the
   # foreground (Ctrl+C to stop).
+  #
+  # The registration name carries the environment id too: `claude mcp add` is
+  # keyed by name at user scope, so a fixed "jira-mcp" would have the second
+  # environment silently overwrite the first environment's entry.
   claude_cli_setup:
-    value: 'claude mcp add -s user --transport http jira-mcp http://localhost:9000/mcp && kubectl port-forward svc/jira-mcp -n mcp 9000:9000'
+    value: 'claude mcp add -s user --transport http jira-mcp-{{ envId | downcase }} http://localhost:{{ .inputs.local_port }}/mcp && kubectl port-forward svc/jira-mcp-{{ envId | downcase }} -n mcp {{ .inputs.local_port }}:9000'
   # Unregister the MCP server from the Claude CLI (stop the port-forward separately).
   claude_mcp_delete_command:
-    value: 'claude mcp remove -s user jira-mcp'
+    value: 'claude mcp remove -s user jira-mcp-{{ envId | downcase }}'
 
 grains:
   jira-mcp:
@@ -79,9 +95,18 @@ grains:
         path: helm/jira-mcp
       agent:
         name: '{{ .inputs.agent }}'
+      # Shared namespace on purpose: every MCP server from this repo lands in
+      # "mcp", so one `kubectl get pods -n mcp` shows them all. Isolation comes
+      # from the per-resource instance suffix below, not from the namespace.
       target-namespace: mcp
       command-arguments: '--create-namespace --wait --timeout 3m'
       inputs:
+        # Suffixes every object the chart creates (Deployment, Service, Secret,
+        # labels) with the environment id, so a second environment deploying into
+        # the same namespace doesn't hit Helm's "invalid ownership metadata" error
+        # or end up with two Services selecting the same pods. Kept in sync by hand
+        # with the DNS names in the outputs above.
+        - instance: '{{ envId | downcase }}'
         - jiraUrl: '{{ .inputs.jira_url }}'
         - authMode: '{{ .inputs.auth_mode }}'
         - jiraUsername: '{{ .inputs.jira_username }}'

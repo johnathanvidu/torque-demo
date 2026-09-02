@@ -1,15 +1,17 @@
 apiVersion: v1
 kind: Service
 metadata:
-  # Fixed name so the MCP endpoint DNS is deterministic:
-  #   http://postgres-mcp.<namespace>.svc.cluster.local:<port>/mcp
-  name: postgres-mcp
+  # Name carries the instance suffix, so several releases can share a namespace
+  # and each still gets its own deterministic DNS record:
+  #   http://<chart>-<instance>.<namespace>.svc.cluster.local:<port>/sse
+  # The blueprint's mcp_endpoint output builds the same string.
+  name: {{ include "postgres-mcp.fullname" . }}
   labels:
-    app: postgres-mcp
+    {{- include "postgres-mcp.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
   selector:
-    app: postgres-mcp
+    {{- include "postgres-mcp.selectorLabels" . | nindent 4 }}
   ports:
     - name: http
       port: {{ .Values.port }}

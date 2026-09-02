@@ -1,15 +1,18 @@
 apiVersion: v1
 kind: Service
 metadata:
-  # Fixed name so the MCP endpoint DNS is deterministic:
-  #   http://grafana-mcp.<namespace>.svc.cluster.local:<port>/
-  name: grafana-mcp
+  # Name carries the instance suffix, so several releases can share a namespace
+  # and each still gets its own deterministic DNS record:
+  #   http://<chart>-<instance>.<namespace>.svc.cluster.local:<port>/mcp
+  # The blueprint's mcp_endpoint output builds the same string, and the
+  # --allowed-hosts list in the Deployment is computed from it too.
+  name: {{ include "grafana-mcp.fullname" . }}
   labels:
-    app: grafana-mcp
+    {{- include "grafana-mcp.labels" . | nindent 4 }}
 spec:
   type: {{ .Values.service.type }}
   selector:
-    app: grafana-mcp
+    {{- include "grafana-mcp.selectorLabels" . | nindent 4 }}
   ports:
     - name: http
       port: {{ .Values.port }}

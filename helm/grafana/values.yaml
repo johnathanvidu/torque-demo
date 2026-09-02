@@ -1,5 +1,16 @@
 # Minimal Grafana chart values. Overridden by the Torque helm grain inputs.
 
+# --- Instance naming ---------------------------------------------------------
+# Suffix appended to every resource name this chart creates, so the chart can be
+# installed more than once into the SAME namespace. The Torque blueprint sets
+# this to the environment id; leave it blank for a plain `helm install` and the
+# release name is used instead. See templates/_helpers.tpl.
+instance: ""
+# Escape hatches, both blank by default: nameOverride replaces the "grafana"
+# stem, fullnameOverride replaces the computed name outright.
+nameOverride: ""
+fullnameOverride: ""
+
 image:
   repository: grafana/grafana
   tag: "11.3.0"

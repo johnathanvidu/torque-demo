@@ -1,18 +1,19 @@
+{{- $fullname := include "postgres-mcp.fullname" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: postgres-mcp
+  name: {{ $fullname }}
   labels:
-    app: postgres-mcp
+    {{- include "postgres-mcp.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
-      app: postgres-mcp
+      {{- include "postgres-mcp.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: postgres-mcp
+        {{- include "postgres-mcp.labels" . | nindent 8 }}
       annotations:
         # Roll the pod when the connection URI changes — a Secret-only update
         # leaves the running pod pointed at the old database.
@@ -44,7 +45,7 @@ spec:
             - name: DATABASE_URI
               valueFrom:
                 secretKeyRef:
-                  name: postgres-mcp-auth
+                  name: {{ $fullname }}-auth
                   key: databaseUri
           # TCP probes, not httpGet: the SSE endpoint is /sse and a bare GET on it
           # opens a long-lived event stream rather than returning a 2xx body, so an
@@ -67,9 +68,9 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: postgres-mcp-auth
+  name: {{ $fullname }}-auth
   labels:
-    app: postgres-mcp
+    {{- include "postgres-mcp.labels" . | nindent 4 }}
 type: Opaque
 stringData:
   databaseUri: "{{ .Values.databaseUri }}"

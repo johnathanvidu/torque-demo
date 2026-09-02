@@ -2,6 +2,17 @@
 # particular databaseUri, which is computed at deploy time by the Postgres
 # blueprint and wired in via the environment.
 
+# --- Instance naming ---------------------------------------------------------
+# Suffix appended to every resource name this chart creates, so the chart can be
+# installed more than once into the SAME namespace. The Torque blueprint sets
+# this to the environment id; leave it blank for a plain `helm install` and the
+# release name is used instead. See templates/_helpers.tpl.
+instance: ""
+# Escape hatches, both blank by default: nameOverride replaces the "postgres-mcp"
+# stem, fullnameOverride replaces the computed name outright.
+nameOverride: ""
+fullnameOverride: ""
+
 image:
   repository: crystaldba/postgres-mcp
   # Pinned, not "latest": the CLI surface changes between releases and the

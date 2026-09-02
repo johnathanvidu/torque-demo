@@ -2,9 +2,9 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: postgres-seed
+  name: {{ include "postgres.fullname" . }}-seed
   labels:
-    app: postgres
+    {{- include "postgres.labels" . | nindent 4 }}
 data:
   # Files in /docker-entrypoint-initdb.d run in filename order, once, on an empty
   # data directory. Keeping this to one file keeps the ordering trivially obvious.

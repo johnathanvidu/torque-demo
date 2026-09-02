@@ -1,5 +1,5 @@
 spec_version: 2
-description: Deploy a PostgreSQL MCP server that gives AI agents live access to a Postgres database - explore schemas, run SQL, read query plans, get index-tuning recommendations, and check database health.
+description: Deploy a PostgreSQL MCP server that gives AI agents live access to a Postgres database - explore schemas, run SQL, read query plans, get index-tuning recommendations, and check database health. Can be launched many times against the same cluster - every deployment names its resources after the environment id.
 
 metadata:
   self-service: true
@@ -10,8 +10,8 @@ metadata:
     - key: type
       value: mcp
 
-# Only three inputs - everything else (image tag, transport, port, bind host,
-# namespace) is fixed and lives in helm/postgres-mcp/values.yaml.
+# Only a handful of inputs - everything else (image tag, transport, port, bind
+# host, namespace) is fixed and lives in helm/postgres-mcp/values.yaml.
 inputs:
   agent:
     type: agent
@@ -20,7 +20,7 @@ inputs:
   database_uri:
     type: string
     sensitive: true
-    description: Full libpq connection URI, e.g. postgresql://user:pass@postgres.postgres.svc.cluster.local:5432/db. Assembled at deploy time and wired from the Postgres grain output.
+    description: Full libpq connection URI, e.g. postgresql://user:pass@postgres-abc123.postgres.svc.cluster.local:5432/db. Assembled at deploy time and wired from the Postgres grain output.
   access_mode:
     type: string
     default: restricted
@@ -28,20 +28,37 @@ inputs:
       - restricted
       - unrestricted
     description: restricted = read-only transactions with query-shape protections. unrestricted = full read/write DDL and DML.
+  local_port:
+    type: string
+    default: '8000'
+    description: >-
+      Local port the claude_cli_setup output's port-forward binds to. The cluster
+      side is always 8000; this is only the laptop side, and it is the one thing
+      that still collides when two of these environments are tunnelled at once —
+      give the second one 8001, and so on. Note the Grafana MCP server also uses
+      8000 in-cluster, so it competes for the same local default.
 
 outputs:
   # In-cluster SSE endpoint of the MCP server, for other in-cluster clients /
   # agents. postgres-mcp 0.3.0 speaks SSE, not streamable-http.
+  #
+  # The environment id is part of the Service name (see the instance input on the
+  # grain below), which is what lets several of these environments share the "mcp"
+  # namespace without their Deployments, Services, Secrets, and labels colliding.
   mcp_endpoint:
-    value: 'http://postgres-mcp.mcp.svc.cluster.local:8000/sse'
+    value: 'http://postgres-mcp-{{ envId | downcase }}.mcp.svc.cluster.local:8000/sse'
   # One command to use the server from the Claude CLI: register it (-s user = global
   # scope, works from any directory), then hold the port-forward tunnel open in the
   # foreground (Ctrl+C to stop).
+  #
+  # The registration name carries the environment id too: `claude mcp add` is
+  # keyed by name at user scope, so a fixed "postgres-mcp" would have the second
+  # environment silently overwrite the first environment's entry.
   claude_cli_setup:
-    value: 'claude mcp add -s user --transport sse postgres-mcp http://localhost:8000/sse && kubectl port-forward svc/postgres-mcp -n mcp 8000:8000'
+    value: 'claude mcp add -s user --transport sse postgres-mcp-{{ envId | downcase }} http://localhost:{{ .inputs.local_port }}/sse && kubectl port-forward svc/postgres-mcp-{{ envId | downcase }} -n mcp {{ .inputs.local_port }}:8000'
   # Unregister the MCP server from the Claude CLI (stop the port-forward separately).
   claude_mcp_delete_command:
-    value: 'claude mcp remove -s user postgres-mcp'
+    value: 'claude mcp remove -s user postgres-mcp-{{ envId | downcase }}'
 
 grains:
   postgres-mcp:
@@ -52,10 +69,17 @@ grains:
         path: helm/postgres-mcp
       agent:
         name: '{{ .inputs.agent }}'
+      # Shared namespace on purpose: every MCP server from this repo lands in
+      # "mcp", so one `kubectl get pods -n mcp` shows them all. Isolation comes
+      # from the per-resource instance suffix below, not from the namespace.
       target-namespace: mcp
       command-arguments: '--create-namespace --wait --timeout 3m'
-      # Only the dynamic connection URI plus the safety mode are wired; the rest
-      # are chart defaults.
       inputs:
+        # Suffixes every object the chart creates (Deployment, Service, Secret,
+        # labels) with the environment id, so a second environment deploying into
+        # the same namespace doesn't hit Helm's "invalid ownership metadata" error
+        # or end up with two Services selecting the same pods. Kept in sync by hand
+        # with the DNS names in the outputs above.
+        - instance: '{{ envId | downcase }}'
         - databaseUri: '{{ .inputs.database_uri }}'
         - accessMode: '{{ .inputs.access_mode }}'

@@ -1,15 +1,17 @@
 apiVersion: v1
 kind: Service
 metadata:
-  # Fixed name so the in-cluster DNS is deterministic:
-  #   http://grafana.<namespace>.svc.cluster.local:<port>
-  name: grafana
+  # Name carries the instance suffix, so several Grafanas can share a namespace
+  # and each still gets its own deterministic DNS record:
+  #   http://<chart>-<instance>.<namespace>.svc.cluster.local:<port>
+  # The blueprint's grafana_url output builds the same string.
+  name: {{ include "grafana.fullname" . }}
   labels:
-    app: grafana
+    {{- include "grafana.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
   selector:
-    app: grafana
+    {{- include "grafana.selectorLabels" . | nindent 4 }}
   ports:
     - name: http
       port: {{ .Values.service.port }}

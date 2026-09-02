@@ -1,5 +1,5 @@
 spec_version: 2
-description: Deploy Grafana into the "grafana" namespace of the agent's Kubernetes cluster, then mint a service-account token so downstream tools (the Grafana MCP server) can authenticate to it.
+description: Deploy Grafana into the "grafana" namespace of the agent's Kubernetes cluster, then mint a service-account token so downstream tools (the Grafana MCP server) can authenticate to it. Can be launched many times against the same cluster - every deployment names its resources after the environment id.
 
 metadata:
   self-service: true
@@ -14,7 +14,11 @@ inputs:
   namespace:
     type: string
     default: grafana
-    description: Namespace to deploy Grafana into (created if missing). Also determines the in-cluster URL.
+    description: >-
+      Namespace to deploy Grafana into (created if missing). Also determines the
+      in-cluster URL. Safe to share between environments - the resource names
+      inside it carry the environment id, so two Grafanas in one namespace do not
+      collide.
   grafana_version:
     type: string
     default: "11.3.0"
@@ -42,7 +46,10 @@ inputs:
     description: Name of the service-account token minted for the MCP server.
 
 outputs:
-  # In-cluster base URL of Grafana, e.g. http://grafana.grafana.svc.cluster.local:3000
+  # In-cluster base URL of Grafana, e.g.
+  #   http://grafana-abc123.grafana.svc.cluster.local:3000
+  # The environment id is part of the Service name (see the instance input on the
+  # grain below), which is what lets two of these share one namespace.
   grafana_url:
     value: '{{ .grains.grafana.scripts.post-helm-install.outputs.grafana_url }}'
   # Freshly minted service-account token — the dynamically calculated auth input for the MCP server.
@@ -65,6 +72,12 @@ grains:
       target-namespace: '{{ .inputs.namespace }}'
       command-arguments: '--create-namespace --wait --timeout 5m'
       inputs:
+        # Suffixes every object the chart creates (Deployment, Service, labels)
+        # with the environment id, so a second environment deploying into the same
+        # namespace doesn't hit Helm's "invalid ownership metadata" error or end up
+        # with two Services selecting the same pods. Kept in sync by hand with the
+        # hostname the post-install script is handed below.
+        - instance: '{{ envId | downcase }}'
         - image.tag: '{{ .inputs.grafana_version }}'
         - adminUser: '{{ .inputs.admin_user }}'
         - adminPassword: '{{ .inputs.admin_password }}'
@@ -74,7 +87,7 @@ grains:
           source:
             store: torque-demo
             path: scripts/grafana/grafana-create-sa-token.sh
-          arguments: 'http://grafana.{{ .inputs.namespace }}.svc.cluster.local:{{ .inputs.service_port }} {{ .inputs.admin_user }} {{ .inputs.admin_password }} {{ .inputs.sa_name }} {{ .inputs.token_name }}'
+          arguments: 'http://grafana-{{ envId | downcase }}.{{ .inputs.namespace }}.svc.cluster.local:{{ .inputs.service_port }} {{ .inputs.admin_user }} {{ .inputs.admin_password }} {{ .inputs.sa_name }} {{ .inputs.token_name }}'
           outputs:
             - grafana_url
             - service_account_token

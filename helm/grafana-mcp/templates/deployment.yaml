@@ -1,18 +1,36 @@
+{{- $fullname := include "grafana-mcp.fullname" . -}}
+{{/*
+Host header allowlist, computed rather than hardcoded: the in-cluster names
+depend on the instance suffix and the release namespace, so a fixed list would
+only ever be right for one deployment. Both the bare Service name and the FQDN
+are listed, each with and without the port, because mcp-grafana matches the full
+Host header — which includes the port whenever the client dials a non-default
+one. extraAllowedHosts adds the localhost:<local port> variants a
+`kubectl port-forward` client sends.
+*/}}
+{{- $hosts := list
+      (printf "%s.%s.svc.cluster.local" $fullname .Release.Namespace)
+      (printf "%s.%s.svc.cluster.local:%v" $fullname .Release.Namespace .Values.port)
+      $fullname
+      (printf "%s:%v" $fullname .Values.port) -}}
+{{- with .Values.extraAllowedHosts }}
+{{- $hosts = concat $hosts (splitList "," .) -}}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: grafana-mcp
+  name: {{ $fullname }}
   labels:
-    app: grafana-mcp
+    {{- include "grafana-mcp.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
-      app: grafana-mcp
+      {{- include "grafana-mcp.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: grafana-mcp
+        {{- include "grafana-mcp.labels" . | nindent 8 }}
     spec:
       containers:
         - name: grafana-mcp
@@ -24,7 +42,7 @@ spec:
             - "--address"
             - "{{ .Values.bindAddress }}:{{ .Values.port }}"
             - "--allowed-hosts"
-            - "{{ .Values.allowedHosts }}"
+            - "{{ join "," $hosts }}"
             - "--endpoint-path"
             - "{{ .Values.endpointPath }}"
           ports:
@@ -36,7 +54,7 @@ spec:
             - name: GRAFANA_SERVICE_ACCOUNT_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: grafana-mcp-auth
+                  name: {{ $fullname }}-auth
                   key: serviceAccountToken
           # TCP probes, not httpGet: the kubelet sends HTTP probes with
           # Host: <podIP>, which mcp-grafana's --allowed-hosts check rejects
@@ -61,9 +79,9 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: grafana-mcp-auth
+  name: {{ $fullname }}-auth
   labels:
-    app: grafana-mcp
+    {{- include "grafana-mcp.labels" . | nindent 4 }}
 type: Opaque
 stringData:
   serviceAccountToken: "{{ .Values.serviceAccountToken }}"

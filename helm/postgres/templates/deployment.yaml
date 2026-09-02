@@ -1,9 +1,10 @@
+{{- $fullname := include "postgres.fullname" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: postgres
+  name: {{ $fullname }}
   labels:
-    app: postgres
+    {{- include "postgres.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
   # Recreate, not RollingUpdate: two Postgres pods must never hold the same
@@ -13,11 +14,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app: postgres
+      {{- include "postgres.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: postgres
+        {{- include "postgres.labels" . | nindent 8 }}
     spec:
       containers:
         - name: postgres
@@ -32,7 +33,7 @@ spec:
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: postgres-auth
+                  name: {{ $fullname }}-auth
                   key: password
             - name: POSTGRES_DB
               value: "{{ .Values.database }}"
@@ -71,23 +72,23 @@ spec:
         - name: data
           {{- if eq (toString .Values.persistence.enabled) "true" }}
           persistentVolumeClaim:
-            claimName: postgres-data
+            claimName: {{ $fullname }}-data
           {{- else }}
           emptyDir: {}
           {{- end }}
         {{- if eq (toString .Values.seedData) "true" }}
         - name: seed
           configMap:
-            name: postgres-seed
+            name: {{ $fullname }}-seed
         {{- end }}
 {{- if eq (toString .Values.persistence.enabled) "true" }}
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: postgres-data
+  name: {{ $fullname }}-data
   labels:
-    app: postgres
+    {{- include "postgres.labels" . | nindent 4 }}
 spec:
   accessModes:
     - ReadWriteOnce
@@ -102,9 +103,9 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: postgres-auth
+  name: {{ $fullname }}-auth
   labels:
-    app: postgres
+    {{- include "postgres.labels" . | nindent 4 }}
 type: Opaque
 stringData:
   password: "{{ .Values.password }}"

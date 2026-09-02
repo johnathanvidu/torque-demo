@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: grafana
+  name: {{ include "grafana.fullname" . }}
   labels:
-    app: grafana
+    {{- include "grafana.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
-      app: grafana
+      {{- include "grafana.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: grafana
+        {{- include "grafana.labels" . | nindent 8 }}
     spec:
       securityContext:
         fsGroup: 472

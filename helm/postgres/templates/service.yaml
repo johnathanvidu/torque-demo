@@ -1,15 +1,17 @@
 apiVersion: v1
 kind: Service
 metadata:
-  # Fixed name so the in-cluster DNS is deterministic:
-  #   postgres.<namespace>.svc.cluster.local:<port>
-  name: postgres
+  # Name carries the instance suffix, so several databases can share a namespace
+  # and each still gets its own deterministic DNS record:
+  #   <chart>-<instance>.<namespace>.svc.cluster.local:<port>
+  # The blueprint's database_uri / postgres_host outputs build the same string.
+  name: {{ include "postgres.fullname" . }}
   labels:
-    app: postgres
+    {{- include "postgres.labels" . | nindent 4 }}
 spec:
   type: ClusterIP
   selector:
-    app: postgres
+    {{- include "postgres.selectorLabels" . | nindent 4 }}
   ports:
     - name: postgres
       port: {{ .Values.service.port }}

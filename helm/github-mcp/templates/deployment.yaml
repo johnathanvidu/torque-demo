@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: github-mcp
+  name: {{ include "github-mcp.fullname" . }}
   labels:
-    app: github-mcp
+    {{- include "github-mcp.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
-      app: github-mcp
+      {{- include "github-mcp.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: github-mcp
+        {{- include "github-mcp.labels" . | nindent 8 }}
     spec:
       containers:
         - name: github-mcp

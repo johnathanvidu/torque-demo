@@ -1,18 +1,19 @@
+{{- $fullname := include "jira-mcp.fullname" . -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: jira-mcp
+  name: {{ $fullname }}
   labels:
-    app: jira-mcp
+    {{- include "jira-mcp.labels" . | nindent 4 }}
 spec:
   replicas: {{ .Values.replicas }}
   selector:
     matchLabels:
-      app: jira-mcp
+      {{- include "jira-mcp.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: jira-mcp
+        {{- include "jira-mcp.labels" . | nindent 8 }}
       annotations:
         # Roll the pod when the credentials change — otherwise a Secret-only
         # update leaves the running pod holding the previous token.
@@ -50,14 +51,14 @@ spec:
             - name: JIRA_API_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: jira-mcp-auth
+                  name: {{ $fullname }}-auth
                   key: jiraToken
             {{- else }}
             # Server / Data Center: Personal Access Token, no username.
             - name: JIRA_PERSONAL_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: jira-mcp-auth
+                  name: {{ $fullname }}-auth
                   key: jiraToken
             {{- end }}
             - name: JIRA_SSL_VERIFY
@@ -104,9 +105,9 @@ spec:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: jira-mcp-auth
+  name: {{ $fullname }}-auth
   labels:
-    app: jira-mcp
+    {{- include "jira-mcp.labels" . | nindent 4 }}
 type: Opaque
 stringData:
   # Holds the API token (Cloud) or the PAT (Server/DC) — the deployment mounts it
