@@ -1,0 +1,35 @@
+spec_version: 2
+description: Roll the Kafka consumer process (SSM restart of the systemd service).
+
+workflow:
+  scope: env
+  labels-selector: kafka
+  triggers:
+    - type: manual
+  timeout: 10
+
+inputs:
+  agent:
+    type: agent
+
+grains:
+  restart_consumer:
+    kind: shell
+    spec:
+      agent:
+        name: '{{ .inputs.agent }}'
+      env-vars:
+        - PREFIX: '{{ .bindings.inputs.prefix }}'
+        - AWS_DEFAULT_REGION: '{{ .bindings.inputs.region }}'
+      activities:
+        deploy:
+          commands:
+            - |
+              set -euo pipefail
+              INSTANCE_ID=$(aws ec2 describe-instances \
+                --filters "Name=tag:Name,Values=$PREFIX-kafka-app" "Name=instance-state-name,Values=running" \
+                --query 'Reservations[0].Instances[0].InstanceId' --output text)
+              echo "Restarting consumer on $INSTANCE_ID"
+              aws ssm send-command --instance-ids "$INSTANCE_ID" \
+                --document-name AWS-RunShellScript \
+                --parameters 'commands=["systemctl restart kafka-demo-consumer"]'
