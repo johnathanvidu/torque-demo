@@ -11,7 +11,18 @@ variable "cidr_block" {
 }
 
 variable "subnet_index" {
-  description = "Which /24 block to carve out of the VPC CIDR (0-based)"
+  description = "Which /24 block of the VPC CIDR the first subnet uses (0-based); further subnets take the following blocks"
   type        = number
   default     = 0
+}
+
+variable "subnet_count" {
+  description = "Number of public /24 subnets to create, spread across availability zones"
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.subnet_count >= 1
+    error_message = "subnet_count must be at least 1."
+  }
 }

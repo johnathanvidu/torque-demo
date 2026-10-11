@@ -9,11 +9,16 @@ output "vpc_cidr_block" {
 }
 
 output "subnet_id" {
-  description = "ID of the calculated /24 subnet"
-  value       = aws_subnet.this.id
+  description = "ID of the first /24 subnet"
+  value       = aws_subnet.this[0].id
+}
+
+output "subnet_ids" {
+  description = "IDs of all created /24 subnets"
+  value       = aws_subnet.this[*].id
 }
 
 output "subnet_cidr_block" {
-  description = "CIDR block of the calculated /24 subnet"
-  value       = aws_subnet.this.cidr_block
+  description = "CIDR block of the first /24 subnet"
+  value       = aws_subnet.this[0].cidr_block
 }
