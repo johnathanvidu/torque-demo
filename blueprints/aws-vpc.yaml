@@ -1,5 +1,5 @@
 spec_version: 2
-description: Provision an AWS VPC with a public /24 subnet, internet gateway, and route table.
+description: Provision an AWS VPC with one or more public /24 subnets (spread across availability zones), an internet gateway, and a route table.
 
 metadata:
   self-service: true
@@ -22,7 +22,14 @@ inputs:
   subnet_index:
     type: string
     default: "0"
-    description: Which /24 block to carve out of the VPC CIDR (0-based).
+    description: Which /24 block of the VPC CIDR the first subnet uses (0-based). Additional subnets take the following blocks.
+  subnet_count:
+    type: string
+    default: "1"
+    pattern: '^[1-9][0-9]*$'
+    validation-description: Must be a whole number of at least 1.
+    description: Number of public /24 subnets to create, spread across availability zones. Use 2 or more when the VPC will host RDS.
+    
 
 outputs:
   vpc_id:
@@ -31,6 +38,8 @@ outputs:
     value: '{{ .grains.vpc.outputs.vpc_cidr_block }}'
   subnet_id:
     value: '{{ .grains.vpc.outputs.subnet_id }}'
+  subnet_ids:
+    value: '{{ .grains.vpc.outputs.subnet_ids }}'
   subnet_cidr_block:
     value: '{{ .grains.vpc.outputs.subnet_cidr_block }}'
 
@@ -47,8 +56,10 @@ grains:
         - name: '{{ .inputs.name }}'
         - cidr_block: '{{ .inputs.cidr_block }}'
         - subnet_index: '{{ .inputs.subnet_index }}'
+        - subnet_count: '{{ .inputs.subnet_count }}'
       outputs:
         - vpc_id
         - vpc_cidr_block
         - subnet_id
+        - subnet_ids
         - subnet_cidr_block
