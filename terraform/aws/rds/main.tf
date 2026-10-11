@@ -36,7 +36,7 @@ resource "aws_security_group" "db" {
 
 module "db" {
   source  = "terraform-aws-modules/rds/aws"
-  version = "7.2.2"
+  version = "6.13.1"
 
   identifier = var.name
 
