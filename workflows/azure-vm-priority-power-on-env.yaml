@@ -44,7 +44,7 @@ grains:
         name: '{{ .inputs.agent }}'
       files:
         - source: torque-demo
-          path: scripts/filter-azure-vm-by-tags.sh
+          path: scripts/azure-vms/filter-azure-vm-by-tags.sh
       activities:
         deploy:
           commands:
