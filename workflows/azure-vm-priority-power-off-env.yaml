@@ -75,7 +75,7 @@ grains:
     when: '{% if .grains.select_vms.activities.deploy.commands.filter-secondary.outputs.vms_json != "[]" and .grains.select_vms.activities.deploy.commands.filter-secondary.outputs.vms_json != "" and .grains.select_vms.activities.deploy.commands.filter-secondary.outputs.vms_json != null %} true {% else %} false {% endif %}'
     spec:
       source:
-        path: https://github.com/QualiTorque/torque-actions.git//resource/azure-deallocate-vm-tf.yaml
+        path: https://github.com/QualiTorque/torque-actions.git//resource/azure-power-off-vm-tf.yaml
       built-in: true
       agent:
         name: '{{ .inputs.agent }}'
@@ -88,7 +88,7 @@ grains:
     when: '{% if .grains.select_vms.activities.deploy.commands.filter-priority.outputs.vms_json != "[]" and .grains.select_vms.activities.deploy.commands.filter-priority.outputs.vms_json != "" and .grains.select_vms.activities.deploy.commands.filter-priority.outputs.vms_json != null %} true {% else %} false {% endif %}'
     spec:
       source:
-        path: https://github.com/QualiTorque/torque-actions.git//resource/azure-deallocate-vm-tf.yaml
+        path: https://github.com/QualiTorque/torque-actions.git//resource/azure-power-off-vm-tf.yaml
       built-in: true
       agent:
         name: '{{ .inputs.agent }}'
