@@ -22,6 +22,14 @@ inputs:
     type: string
     default: 'repos,issues,pull_requests,actions'
     description: Comma-separated toolsets to enable. Blank uses the server's default selection.
+  local_port:
+    type: string
+    default: '8082'
+    description: >-
+      Local port the environment's port-forward / claude mcp add commands use. The
+      in-cluster side is unaffected. Bump this (to 8083, and so on) when you want a
+      second copy of this environment tunnelled to your laptop at the same time — it
+      is the only thing left that two concurrent copies still contend for.
 
 grains:
   mcp:
@@ -36,6 +44,7 @@ grains:
         # The server is read-write; clients that shouldn't mutate anything dial the
         # /readonly path instead. Set 'true' to make read-only the hard guarantee.
         - read_only: 'false'
+        - local_port: '{{ .inputs.local_port }}'
       outputs:
         - mcp_endpoint
         - mcp_endpoint_readonly

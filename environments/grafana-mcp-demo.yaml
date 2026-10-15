@@ -18,6 +18,14 @@ inputs:
     type: string
     default: k8s-agent    
     description: Name of the Kubernetes agent (and runner cluster) to deploy into.
+  local_port:
+    type: string
+    default: '8000'
+    description: >-
+      Local port the environment's port-forward / claude mcp add commands use. The
+      in-cluster side is unaffected. Bump this (to 8001, and so on) when you want a
+      second copy of this environment tunnelled to your laptop at the same time — it
+      is the only thing left that two concurrent copies still contend for.
 
 grains:
   grafana:
@@ -46,5 +54,6 @@ grains:
         - agent: '{{ .inputs.k8s_agent }}'
         - grafana_url: '{{ .grains.grafana.outputs.grafana_url }}'
         - service_account_token: '{{ .grains.grafana.outputs.service_account_token }}'
+        - local_port: '{{ .inputs.local_port }}'
       outputs:
         - mcp_endpoint

@@ -36,6 +36,14 @@ inputs:
     type: string
     default: ''
     description: Optional comma-separated project keys to restrict the server to, e.g. PROJ,DEV.
+  local_port:
+    type: string
+    default: '9000'
+    description: >-
+      Local port the environment's port-forward / claude mcp add commands use. The
+      in-cluster side is unaffected. Bump this (to 9001, and so on) when you want a
+      second copy of this environment tunnelled to your laptop at the same time — it
+      is the only thing left that two concurrent copies still contend for.
 
 grains:
   mcp:
@@ -54,5 +62,6 @@ grains:
         # Start read-only, so the demo can't transition or close a real ticket by
         # accident. Flip to 'false' to show off the write tools.
         - read_only: 'true'
+        - local_port: '{{ .inputs.local_port }}'
       outputs:
         - mcp_endpoint
