@@ -39,7 +39,6 @@ inputs:
 grains:
   select_vms:
     kind: shell
-    when: '{{ .grains.check_idle.activities.deploy.commands.evaluate.outputs.should_power_on }}'
     spec:
       agent:
         name: '{{ .inputs.agent }}'
