@@ -1,0 +1,96 @@
+spec_version: 2
+description: "Shutdown by Azure VM tag, the reverse of the boot sequence: deallocate the NetApp CVOs, then every running non-priority VM, then the priority VMs (bootSequence=1). Selection by shell script, power by the built-in torque-actions."
+
+workflow:
+  scope: env
+  labels-selector: "Hyperscaler:Azure"
+  triggers:
+    - type: manual
+    # The built-in azure-vm-power-off-env workflow already owns the 22:00 cron.
+    # Uncomment here (and remove it there) to switch the schedule to the sequenced shutdown.
+    # - type: cron
+    #   cron: '0 22 * * *' # every day at 22:00 UTC
+    #   overridable: true
+
+inputs:
+  agent:
+    type: agent
+    description: Torque agent that runs the selection script and the built-in power actions. Needs Azure control-plane access.
+  tag_key:
+    type: string
+    default: bootSequence
+    description: Tag key used to select VMs
+  tag_value:
+    type: string
+    default: "1"
+    description: Priority tag value; VMs with this value are shut down last
+  resource_type:
+    type: string
+    default: azurerm_virtual_machine
+    description: Resource type(s) searched inside binding-context resources. Comma-separated for more than one.
+
+grains:
+  # ---------------------------------------------------------------- selection
+  select_vms:
+    kind: shell
+    spec:
+      agent:
+        name: '{{ .inputs.agent }}'
+      files:
+        - source: torque-demo
+          path: scripts/azure-vms/filter-azure-vm-by-tags.sh
+      activities:
+        deploy:
+          commands:
+            - name: filter-secondary
+              command: >-
+                chmod +x filter-azure-vm-by-tags.sh &&
+                . ./filter-azure-vm-by-tags.sh
+                --tag-key '{{ .inputs.tag_key }}'
+                --tag-value '{{ .inputs.tag_value }}'
+                --resource-type '{{ .inputs.resource_type }}'
+                --match-operator ne
+                --select all
+                --active-only
+              outputs:
+                - vms_json
+            - name: filter-priority
+              command: >-
+                chmod +x filter-azure-vm-by-tags.sh &&
+                . ./filter-azure-vm-by-tags.sh
+                --tag-key '{{ .inputs.tag_key }}'
+                --tag-value '{{ .inputs.tag_value }}'
+                --resource-type '{{ .inputs.resource_type }}'
+                --match-operator eq
+                --select all
+                --active-only
+              outputs:
+                - vms_json
+
+  # ---------------------------------------------------------------- power, in order
+
+  handle_secondary_vms:
+    kind: ansible
+    depends-on: handle_netapp_cvos
+    when: '{% if .grains.select_vms.activities.deploy.commands.filter-secondary.outputs.vms_json != "[]" and .grains.select_vms.activities.deploy.commands.filter-secondary.outputs.vms_json != "" and .grains.select_vms.activities.deploy.commands.filter-secondary.outputs.vms_json != null %} true {% else %} false {% endif %}'
+    spec:
+      source:
+        path: https://github.com/QualiTorque/torque-actions.git//resource/azure-deallocate-vm-tf.yaml
+      built-in: true
+      agent:
+        name: '{{ .inputs.agent }}'
+      env-vars:
+        - TORQUE_REQUESTED_RESOURCES: '{{ .grains.select_vms.activities.deploy.commands.filter-secondary.outputs.vms_json }}'
+
+  handle_priority_vms:
+    kind: ansible
+    depends-on: handle_secondary_vms
+    when: '{% if .grains.select_vms.activities.deploy.commands.filter-priority.outputs.vms_json != "[]" and .grains.select_vms.activities.deploy.commands.filter-priority.outputs.vms_json != "" and .grains.select_vms.activities.deploy.commands.filter-priority.outputs.vms_json != null %} true {% else %} false {% endif %}'
+    spec:
+      source:
+        path: https://github.com/QualiTorque/torque-actions.git//resource/azure-deallocate-vm-tf.yaml
+      built-in: true
+      agent:
+        name: '{{ .inputs.agent }}'
+      env-vars:
+        - TORQUE_REQUESTED_RESOURCES: '{{ .grains.select_vms.activities.deploy.commands.filter-priority.outputs.vms_json }}'
