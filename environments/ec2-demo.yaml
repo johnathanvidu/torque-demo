@@ -46,21 +46,21 @@ grains:
         - instance_type: t3.micro
         - instance_name: '{{ .inputs.prefix }}-ec2'
 
-  s3:
-    kind: terraform
-    spec:
-      source:
-        store: torque-demo
-        path: terraform/aws/s3
-      agent:
-        name: vido-vido-prod
-        use-storage: false
-      inputs:
-        - name: 'my-bucket'
-        - region: '{{ .inputs.region }}'
-      outputs:
-        - s3_bucket_id
-        - s3_bucket_arn
-        - s3_bucket_domain_name
-        - s3_bucket_regional_domain_name
-        - s3_bucket_region
+  # s3:
+  #   kind: terraform
+  #   spec:
+  #     source:
+  #       store: torque-demo
+  #       path: terraform/aws/s3
+  #     agent:
+  #       name: vido-vido-prod
+  #       use-storage: false
+  #     inputs:
+  #       - name: 'my-bucket'
+  #       - region: '{{ .inputs.region }}'
+  #     outputs:
+  #       - s3_bucket_id
+  #       - s3_bucket_arn
+  #       - s3_bucket_domain_name
+  #       - s3_bucket_regional_domain_name
+  #       - s3_bucket_region
