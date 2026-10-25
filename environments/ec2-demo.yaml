@@ -6,7 +6,7 @@ labels:
 environment:
   environment_name: ec2-demo
   owner_email: johnathan.v@quali.com
-  state: active
+  state: inactive
   description: An environment to demonstrate starting and stopping EC2 instances with Torque.
 
 inputs:
